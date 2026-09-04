@@ -628,8 +628,12 @@ jobs:
     - name: Destroy Crave Clone
       if: ${{ always() }}
       run: |
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
-        else          
-          echo "Skipping removal"
-        fi
+        if [[ "${DCDEVSPACE}" == "1" ]]; then
+  if crave clone list --json | jq -e '.clones[] | select(."Cloned At"=="'"$PROJECTFOLDER"'")' >/dev/null; then
+    echo "Clone already exists"
+  else
+    crave clone create --projectID $PROJECTID $PROJECTFOLDER
+  fi
+else
+  mkdir -p $PROJECTFOLDER
+fi
