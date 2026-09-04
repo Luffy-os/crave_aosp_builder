@@ -40,7 +40,7 @@ on:
         default: ""
 
       LOCAL_MANIFEST:
-        description: "Personal local manifest [repository or raw]:"
+        description: "Personal local manifest repository URL or raw XML URL:"
         required: true
         default: 'https://github.com/dthakor1555-png/local_manifests_flame'
 
@@ -144,7 +144,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Check-out to repository
         uses: actions/checkout@v4
 
@@ -161,6 +160,8 @@ jobs:
         id: proj-variables
         shell: bash
         run: |
+          set -e
+
           BASE_PROJECT="${{ github.event.inputs.BASE_PROJECT }}"
           PRODUCT_NAME="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
@@ -247,14 +248,25 @@ jobs:
               ;;
           esac
 
-          # Your Infinity-X product always uses lunch.
+          # Infinity-X product target.
           LUNCH="lunch ${PRODUCT_NAME}-${BUILD_TYPE}"
 
-          # Configure local manifest.
-          if [[ "$LOCAL_MANIFEST_INPUT" =~ \.xml/?$ ]]; then
+          # Accept:
+          # 1. A repository URL
+          # 2. A complete git clone command
+          # 3. A raw XML URL
+          #
+          # This prevents:
+          # git clone git clone https://...
+          #
+          if [[ "$LOCAL_MANIFEST_INPUT" =~ ^git[[:space:]]+clone[[:space:]] ]]; then
+            LOCAL_MANIFEST="$LOCAL_MANIFEST_INPUT"
+
+          elif [[ "$LOCAL_MANIFEST_INPUT" =~ \.xml/?$ ]]; then
             LOCAL_MANIFEST_URL="${LOCAL_MANIFEST_INPUT%/}"
 
             LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* && curl -L -o .repo/local_manifests/local_manifest.xml \"$LOCAL_MANIFEST_URL\""
+
           else
             LOCAL_MANIFEST="git clone --depth=1 -b \"$LOCAL_MANIFEST_BRANCH\" \"$LOCAL_MANIFEST_INPUT\" .repo/local_manifests"
           fi
@@ -289,20 +301,15 @@ jobs:
           echo "Local Manifest: ${{ github.event.inputs.LOCAL_MANIFEST }}"
           echo "Local Manifest Branch: ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
           echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
+          echo "Product Name: ${{ github.event.inputs.PRODUCT_NAME }}"
           echo "Breakfast/Lunch Target: ${{ env.LUNCH }}"
           echo "Build Command: ${{ github.event.inputs.BUILD_COMMAND }}"
           echo "Clean Build: ${{ github.event.inputs.CLEAN_BUILD }}"
 
           echo "::endgroup::"
 
-          echo "Displaying Local Manifests"
-
-          if [[ -z "${{ secrets.DISPLAY_FALSE }}" ]]; then
-            bash -c "$LOCAL_MANIFEST"
-            cat .repo/local_manifests/*.xml
-          else
-            echo "Displaying is disabled through secrets."
-          fi
+          echo "Local manifest configuration prepared."
+          echo "The manifest will be cloned during the actual build."
 
     outputs:
       PROJECTFOLDER: ${{ steps.proj-variables.outputs.PROJECTFOLDER }}
@@ -317,7 +324,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Set Repo Project
         run: |
           PROJECTFOLDER="${{ needs.prepare.outputs.PROJECTFOLDER }}"
@@ -358,7 +364,10 @@ jobs:
 
       - name: Test Local Manifests
         if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
+        shell: bash
         run: |
+          set -e
+
           rm -rf tester
           mkdir -p tester
           cd tester
@@ -459,8 +468,6 @@ jobs:
             if [[ $status -ne 0 ]]; then
               echo "You have a broken .bashrc, please contact a Crave.io Administrator"
               exit 1
-            else
-              echo ".bashrc looks okay, no explicit errors"
             fi
 
             if echo "$output" | grep -q "cannot execute"; then
@@ -472,10 +479,11 @@ jobs:
       - name: Create Project Folders
         shell: bash
         run: |
+          set -e
+
           echo "DCDEVSPACE status: ${DCDEVSPACE}"
 
           if [[ "$DCDEVSPACE" != *1* ]]; then
-
             echo "Symlinking devspace folder"
 
             mkdir -p devspace
@@ -485,13 +493,11 @@ jobs:
             sudo ln -sfn "${PWD}/devspace" /crave-devspaces
 
             sudo chmod 777 /crave-devspaces
-
           else
             echo "Already running in devspace. Skipping symlink setup."
           fi
 
           if [[ "$DCDEVSPACE" == *1* ]]; then
-
             echo "Checking for registered Crave clone..."
 
             if crave clone list --json |
@@ -508,7 +514,6 @@ jobs:
                 --projectID "$PROJECTID" \
                 "$PROJECTFOLDER"
             fi
-
           else
             mkdir -p "$PROJECTFOLDER"
           fi
@@ -519,7 +524,6 @@ jobs:
       - name: Set-up workspace environment
         run: |
           cd "$PROJECTFOLDER"
-
           mkdir -p "${{ github.event.inputs.DEVICE_NAME }}"
 
       - name: Set-up 'git' credential(s)
@@ -550,19 +554,15 @@ jobs:
           fi
 
           if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
-
             cp configs/crave/crave.yaml.aosp \
               "$PROJECTFOLDER/.repo/manifests/crave.yaml"
 
             echo "No Custom Configuration Found, Using Template!"
-
           else
-
-            echo "${{ secrets.CUSTOM_YAML }}" \
+            printf '%s\n' "${{ secrets.CUSTOM_YAML }}" \
               > "$PROJECTFOLDER/.repo/manifests/crave.yaml"
 
             echo "Custom Configuration Found!"
-
           fi
 
         env:
@@ -601,6 +601,8 @@ jobs:
         if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         shell: bash
         run: |
+          set -e
+
           cd "$PROJECTFOLDER"
 
           if [ "${{ github.event.inputs.CLEAN_BUILD }}" = "yes" ]; then
@@ -631,9 +633,9 @@ jobs:
             $PAID \
             $CLEAN \
             -- \
-            "rm -rf .repo/local_manifests/ $REMOVALS && \
-            $BUILD_DIFFERENT_ROM && \
-            $LOCAL_MANIFEST && \
+            "rm -rf .repo/local_manifests/ ${REMOVALS} && \
+            ${BUILD_DIFFERENT_ROM} && \
+            ${LOCAL_MANIFEST} && \
             if [ -f /usr/bin/resync ]; then \
               /usr/bin/resync; \
             else \
@@ -644,9 +646,10 @@ jobs:
             source build/envsetup.sh && \
             echo 'Repository: ${{ github.repository }}' && \
             echo 'Run ID: ${{ github.run_id }}' && \
-            $LUNCH && \
+            ${LUNCH} && \
             make installclean && \
             ${{ github.event.inputs.BUILD_COMMAND }}"
+
         timeout-minutes: 1440
 
       - name: Telegram Notification
@@ -687,8 +690,6 @@ jobs:
 
           if [ "$jobStatus" = "cancelled" ]; then
             jobMessage="has been Cancelled!"
-          elif [ "$jobStatus" = "failure" ]; then
-            jobMessage="has Failed!"
           else
             jobMessage="has Failed!"
           fi
