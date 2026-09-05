@@ -62,7 +62,7 @@ on:
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'm bacon -j$(nproc --all)'
+        default: 'm bacon'
 
       BUILD_TYPE:
         description: 'Type of build:'
