@@ -164,9 +164,8 @@ jobs:
           # crDroid 16.0 is not an officially listed Crave base project.
           # We therefore use the AOSP project as the Crave storage/base.
           #
-          PROJECTFOLDER="/crave-devspaces/crDroid16"
-          PROJECTID="35"
-
+          PROJECTFOLDER="/crave-devspaces/Lineage22"
+          PROJECTID="93"
           REPO_INIT="repo init -u https://github.com/crdroidandroid/android.git -b 16.0 --git-lfs --no-clone-bundle"
 
           #
