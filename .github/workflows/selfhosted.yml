@@ -5,34 +5,24 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-name: Crave Builder(self-hosted)
+name: Crave Builder - crDroid 16
 
 on:
   workflow_dispatch:
     inputs:
+
       BASE_PROJECT:
-        description: 'Choose a base project:'
+        description: 'Crave base project:'
         required: true
-        default: 'LineageOS 22.1'
+        default: 'crDroid 16.0'
         type: choice
         options:
-          - 'LineageOS 20.0'
-          - 'LineageOS 21.0'
-          - 'LineageOS 22.1'
-          - 'ArrowOS 13.1'
-          - 'DerpFest 14.0'
-          - 'CipherOS 14'
-          - 'PixelOS 15'
-          - 'RisingOS 15 Revived'
-          - 'LineageOS 18.1'
-          - 'LineageOS 16.0'
-          - 'CyanogenMOD 14.1'
-          - 'AOSP'
+          - 'crDroid 16.0'
 
       BUILD_DIFFERENT_ROM:
-        description: "Command to initialize a different 'repo' project:"
-        required: false
-        default: "echo 'Build Starting!'"
+        description: "Command to initialize crDroid 16.0:"
+        required: true
+        default: "repo init -u https://github.com/crdroidandroid/android.git -b 16.0 --git-lfs --no-clone-bundle"
 
       REMOVALS:
         description: "Folders to be removed before syncing:"
@@ -50,19 +40,19 @@ on:
         default: 'main'
 
       DEVICE_NAME:
-        description: "Device's codename:"
+        description: "Device codename:"
         required: true
         default: "flame"
 
       PRODUCT_NAME:
-        description: "Product to build:"
+        description: "Device product/codename:"
         required: true
-        default: "infinity_flame"
+        default: "flame"
 
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'm bacon'
+        default: 'mka bacon'
 
       BUILD_TYPE:
         description: 'Type of build:'
@@ -82,6 +72,7 @@ on:
         options:
           - 'yes'
           - 'no'
+
 
 jobs:
 
@@ -139,8 +130,9 @@ jobs:
             echo 'Runner started'
           fi"
 
+
   prepare:
-    name: Prepare for Building
+    name: Prepare for crDroid 16.0
     runs-on: ubuntu-latest
 
     steps:
@@ -168,96 +160,22 @@ jobs:
           LOCAL_MANIFEST_INPUT="${{ github.event.inputs.LOCAL_MANIFEST }}"
           LOCAL_MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
 
-          case "$BASE_PROJECT" in
-
-            "ArrowOS 13.1")
-              PROJECTFOLDER="/crave-devspaces/Arrow13"
-              PROJECTID="73"
-              REPO_INIT="repo init -u https://github.com/ArrowOS/android_manifest.git -b arrow-13.1 --depth=1"
-              ;;
-
-            "DerpFest 14.0")
-              PROJECTFOLDER="/crave-devspaces/DerpFest14"
-              PROJECTID="64"
-              REPO_INIT="repo init -u https://github.com/DerpFest-AOSP/manifest.git -b 14 --depth=1"
-              ;;
-
-            "LineageOS 21.0")
-              PROJECTFOLDER="/crave-devspaces/Lineage21"
-              PROJECTID="72"
-              REPO_INIT="repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --git-lfs --depth=1"
-              ;;
-
-            "LineageOS 22.1")
-              PROJECTFOLDER="/crave-devspaces/Lineage22"
-              PROJECTID="93"
-              REPO_INIT="repo init -u https://github.com/accupara/los22.git -b lineage-22.1 --git-lfs --depth=1"
-              ;;
-
-            "LineageOS 20.0")
-              PROJECTFOLDER="/crave-devspaces/Lineage20"
-              PROJECTID="36"
-              REPO_INIT="repo init -u https://github.com/accupara/los20.git -b lineage-20.0 --git-lfs --depth=1"
-              ;;
-
-            "CipherOS 14")
-              PROJECTFOLDER="/crave-devspaces/Cipher14"
-              PROJECTID="79"
-              REPO_INIT="repo init -u https://github.com/CipherOS/android_manifest.git -b fourteen --git-lfs --depth=1"
-              ;;
-
-            "PixelOS 15")
-              PROJECTFOLDER="/crave-devspaces/Pixel15"
-              PROJECTID="82"
-              REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1"
-              ;;
-
-            "RisingOS 15 Revived")
-              PROJECTFOLDER="/crave-devspaces/Rising15"
-              PROJECTID="86"
-              REPO_INIT="repo init -u https://github.com/RisingOS-Revived/android.git -b fifteen --git-lfs --depth=1"
-              ;;
-
-            "LineageOS 18.1")
-              PROJECTFOLDER="/crave-devspaces/Lineage18"
-              PROJECTID="85"
-              REPO_INIT="repo init -u https://github.com/accupara/los18.1.git -b lineage-18.1 --git-lfs --depth=1"
-              ;;
-
-            "LineageOS 16.0")
-              PROJECTFOLDER="/crave-devspaces/Lineage16"
-              PROJECTID="81"
-              REPO_INIT="repo init -u https://github.com/accupara/los16.git -b lineage-16.0 --git-lfs --depth=1"
-              ;;
-
-            "CyanogenMOD 14.1")
-              PROJECTFOLDER="/crave-devspaces/Cyanogen14"
-              PROJECTID="83"
-              REPO_INIT="repo init -u https://github.com/accupara/los-cm14.1.git -b cm-14.1 --git-lfs --depth=1"
-              ;;
-
-            "AOSP")
-              PROJECTFOLDER="/crave-devspaces/AOSP"
-              PROJECTID="35"
-              REPO_INIT="repo init -u https://android.googlesource.com/platform/manifest.git -b master --git-lfs --depth=1"
-              ;;
-
-            *)
-              echo "Unknown BASE_PROJECT: $BASE_PROJECT"
-              exit 1
-              ;;
-          esac
-
-          # Infinity-X product target.
-          LUNCH="lunch ${PRODUCT_NAME}-${BUILD_TYPE}"
-
-          # Accept:
-          # 1. A repository URL
-          # 2. A complete git clone command
-          # 3. A raw XML URL
           #
-          # This prevents:
-          # git clone git clone https://...
+          # crDroid 16.0 is not an officially listed Crave base project.
+          # We therefore use the AOSP project as the Crave storage/base.
+          #
+          PROJECTFOLDER="/crave-devspaces/crDroid16"
+          PROJECTID="35"
+
+          REPO_INIT="repo init -u https://github.com/crdroidandroid/android.git -b 16.0 --git-lfs --no-clone-bundle"
+
+          #
+          # crDroid uses breakfast to select the device target.
+          #
+          LUNCH="breakfast ${PRODUCT_NAME} ${BUILD_TYPE}"
+
+          #
+          # Local manifest handling.
           #
           if [[ "$LOCAL_MANIFEST_INPUT" =~ ^git[[:space:]]+clone[[:space:]] ]]; then
             LOCAL_MANIFEST="$LOCAL_MANIFEST_INPUT"
@@ -272,12 +190,13 @@ jobs:
           fi
 
           echo "========================================"
+          echo "ROM          : crDroid 16.0"
           echo "Base Project : $BASE_PROJECT"
           echo "Project ID   : $PROJECTID"
           echo "Project Path : $PROJECTFOLDER"
           echo "Product      : $PRODUCT_NAME"
           echo "Build Type   : $BUILD_TYPE"
-          echo "Lunch        : $LUNCH"
+          echo "Build Target : $LUNCH"
           echo "Manifest     : $LOCAL_MANIFEST_INPUT"
           echo "Manifest Br. : $LOCAL_MANIFEST_BRANCH"
           echo "========================================"
@@ -296,20 +215,20 @@ jobs:
           echo "::group::User Environment Variables"
 
           echo "Base Project: ${{ github.event.inputs.BASE_PROJECT }}"
-          echo "Extra Repo Init: ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
+          echo "crDroid Init: ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
           echo "Removals: ${{ github.event.inputs.REMOVALS }}"
           echo "Local Manifest: ${{ github.event.inputs.LOCAL_MANIFEST }}"
           echo "Local Manifest Branch: ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
           echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
           echo "Product Name: ${{ github.event.inputs.PRODUCT_NAME }}"
-          echo "Breakfast/Lunch Target: ${{ env.LUNCH }}"
+          echo "Breakfast Target: ${{ env.LUNCH }}"
           echo "Build Command: ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "Build Type: ${{ github.event.inputs.BUILD_TYPE }}"
           echo "Clean Build: ${{ github.event.inputs.CLEAN_BUILD }}"
 
           echo "::endgroup::"
 
-          echo "Local manifest configuration prepared."
-          echo "The manifest will be cloned during the actual build."
+          echo "crDroid 16.0 manifest configuration prepared."
 
     outputs:
       PROJECTFOLDER: ${{ steps.proj-variables.outputs.PROJECTFOLDER }}
@@ -318,8 +237,9 @@ jobs:
       LUNCH: ${{ steps.proj-variables.outputs.LUNCH }}
       LOCAL_MANIFEST: ${{ steps.proj-variables.outputs.LOCAL_MANIFEST }}
 
+
   test:
-    name: Test Local Manifests
+    name: Test crDroid Local Manifest
     needs: prepare
     runs-on: ubuntu-latest
 
@@ -362,8 +282,7 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      - name: Test Local Manifests
-        if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
+      - name: Test crDroid Manifest
         shell: bash
         run: |
           set -e
@@ -372,11 +291,7 @@ jobs:
           mkdir -p tester
           cd tester
 
-          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" = "echo 'Build Starting!'" ]; then
-            $REPO_INIT
-          else
-            ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}
-          fi
+          $REPO_INIT
 
           bash -c "$LOCAL_MANIFEST"
 
@@ -404,8 +319,9 @@ jobs:
       LUNCH: ${{ needs.prepare.outputs.LUNCH }}
       LOCAL_MANIFEST: ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
 
+
   build:
-    name: Build using foss.crave.io
+    name: Build crDroid 16.0 using foss.crave.io
     timeout-minutes: 1440
     needs: test
     runs-on: self-hosted
@@ -442,7 +358,7 @@ jobs:
               -d parse_mode="Markdown"
           }
 
-          send_telegram_message "Crave Project: ${{ github.event.inputs.BASE_PROJECT }}%0ACrave ProjectID: $PROJECTID%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has been queued%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
+          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has been queued%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
@@ -557,7 +473,7 @@ jobs:
             cp configs/crave/crave.yaml.aosp \
               "$PROJECTFOLDER/.repo/manifests/crave.yaml"
 
-            echo "No Custom Configuration Found, Using Template!"
+            echo "No Custom Configuration Found, Using AOSP Template!"
           else
             printf '%s\n' "${{ secrets.CUSTOM_YAML }}" \
               > "$PROJECTFOLDER/.repo/manifests/crave.yaml"
@@ -581,24 +497,23 @@ jobs:
             echo "$PROJECTFOLDER"
           else
             echo "Crave clone not found."
-            echo "Initializing base project..."
+            echo "Initializing crDroid 16.0..."
 
             $REPO_INIT
           fi
 
-          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" = "echo 'Build Starting!'" ]; then
-            BUILD_DIFFERENT_ROM="$REPO_INIT"
-          else
-            BUILD_DIFFERENT_ROM="${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
-          fi
+          BUILD_DIFFERENT_ROM="${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
 
           echo "BUILD_DIFFERENT_ROM=$BUILD_DIFFERENT_ROM" >> "$GITHUB_ENV"
 
-          echo "We will be building with:"
-          echo "$LUNCH"
+          echo "========================================"
+          echo "ROM       : crDroid 16.0"
+          echo "Project   : $PROJECTFOLDER"
+          echo "ProjectID : $PROJECTID"
+          echo "Target    : $LUNCH"
+          echo "========================================"
 
       - name: Start compilation through 'crave'
-        if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         shell: bash
         run: |
           set -e
@@ -621,10 +536,10 @@ jobs:
           REMOVALS="${{ github.event.inputs.REMOVALS }}"
 
           echo "========================================"
-          echo "Starting Crave build"
+          echo "Starting crDroid 16.0 build"
           echo "Project ID : $PROJECTID"
           echo "Project    : $PROJECTFOLDER"
-          echo "Lunch      : $LUNCH"
+          echo "Target     : $LUNCH"
           echo "========================================"
 
           crave run \
@@ -644,6 +559,7 @@ jobs:
             export BUILD_USERNAME='${{ github.actor }}' && \
             export BUILD_HOSTNAME=crave && \
             source build/envsetup.sh && \
+            echo 'ROM: crDroid 16.0' && \
             echo 'Repository: ${{ github.repository }}' && \
             echo 'Run ID: ${{ github.run_id }}' && \
             ${LUNCH} && \
@@ -666,7 +582,7 @@ jobs:
               -d parse_mode="Markdown"
           }
 
-          send_telegram_message "Crave Project: ${{ github.event.inputs.BASE_PROJECT }}%0ACrave ProjectID: $PROJECTID%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has Succeeded!%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
+          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has Succeeded!%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
@@ -694,7 +610,7 @@ jobs:
             jobMessage="has Failed!"
           fi
 
-          send_telegram_message "Crave Project: ${{ github.event.inputs.BASE_PROJECT }}%0ACrave ProjectID: $PROJECTID%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} $jobMessage%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
+          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} $jobMessage%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
@@ -723,7 +639,7 @@ jobs:
             '${{ github.run_id }}' \
             '${{ github.event.inputs.DEVICE_NAME }}' \
             '${{ github.repository }}' \
-            '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}' \
+            'crDroid-16.0-${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}' \
             '${{ secrets.EXTRA_FILES }}'"
 
       - name: Display error.log
