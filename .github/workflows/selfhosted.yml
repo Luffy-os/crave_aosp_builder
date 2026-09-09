@@ -172,8 +172,7 @@ jobs:
           #
           # crDroid uses breakfast to select the device target.
           #
-          LUNCH="breakfast ${PRODUCT_NAME} ${BUILD_TYPE}"
-
+          LUNCH="brunch ${PRODUCT_NAME}"
           #
           # Local manifest handling.
           #
