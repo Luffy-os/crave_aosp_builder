@@ -1,77 +1,75 @@
-#
-# Copyright (C) 2024-2025 Antonino Scordino
-# Copyright (C) 2024-2025 Souhrud Reddy
-#
-# SPDX-License-Identifier: Apache-2.0
-#
-
-name: Crave Builder - crDroid 16
+name: Evolution X Builder (self-hosted)
 
 on:
   workflow_dispatch:
     inputs:
 
-      BASE_PROJECT:
-        description: 'Crave base project:'
+      EVOLUTION_BRANCH:
+        description: "Evolution X branch"
         required: true
-        default: 'crDroid 16.0'
+        default: "bka"
         type: choice
         options:
-          - 'crDroid 16.0'
+          - "bka"
+          - "cnb"
+
+      CRAVE_PROJECT_ID:
+        description: "Crave project ID"
+        required: true
 
       BUILD_DIFFERENT_ROM:
-        description: "Command to initialize crDroid 16.0:"
-        required: true
-        default: "repo init -u https://github.com/crdroidandroid/android.git -b 16.0 --git-lfs --no-clone-bundle"
+        description: "Command to initialize a different repo project"
+        required: false
+        default: "echo 'Build Starting!'"
 
       REMOVALS:
-        description: "Folders to be removed before syncing:"
+        description: "Folders to remove before syncing"
         required: false
         default: ""
 
       LOCAL_MANIFEST:
-        description: "Personal local manifest repository URL or raw XML URL:"
+        description: "Local manifest repository URL or raw XML URL"
         required: true
-        default: 'https://github.com/dthakor1555-png/local_manifests_flame'
+        default: "https://github.com/Luffy-os/local_manifests_flame"
 
       LOCAL_MANIFEST_BRANCH:
-        description: "Personal local manifest's branch:"
+        description: "Local manifest branch"
         required: false
-        default: 'main'
+        default: "main"
 
       DEVICE_NAME:
-        description: "Device codename:"
+        description: "Device codename"
         required: true
         default: "flame"
 
       PRODUCT_NAME:
-        description: "Device product/codename:"
+        description: "Product name"
         required: true
-        default: "flame"
+        default: "lineage_flame"
 
       BUILD_COMMAND:
-        description: 'Command to be used for compiling:'
+        description: "Build command"
         required: true
-        default: 'mka bacon'
+        default: "m evolution"
 
       BUILD_TYPE:
-        description: 'Type of build:'
+        description: "Build type"
         required: true
-        default: 'userdebug'
+        default: "userdebug"
         type: choice
         options:
-          - 'eng'
-          - 'userdebug'
-          - 'user'
+          - "eng"
+          - "userdebug"
+          - "user"
 
       CLEAN_BUILD:
-        description: 'Build with a clean workspace?'
+        description: "Clean build?"
         required: true
-        default: 'yes'
+        default: "no"
         type: choice
         options:
-          - 'yes'
-          - 'no'
+          - "yes"
+          - "no"
 
 
 jobs:
@@ -80,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -88,12 +87,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux
 
-      - name: Configure the 'crave' environment
+      - name: Configure Crave
         run: |
           echo "DCDEVSPACE status: ${DCDEVSPACE}"
 
           if [[ "$DCDEVSPACE" == *1* ]]; then
-            echo "No need to set up crave, already running in devspace!"
+            echo "Already running in devspace!"
           else
             mkdir -p "${HOME}/bin"
 
@@ -103,6 +102,7 @@ jobs:
             sudo ln -sf "/home/${USER}/bin/crave" /usr/bin/crave
 
             envsubst < "${PWD}/crave.conf.sample" >> "${PWD}/crave.conf"
+
             rm -f "${PWD}/crave.conf.sample"
           fi
 
@@ -110,19 +110,19 @@ jobs:
           CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
-      - name: Run crave devspace
+      - name: Run Crave devspace
         run: |
           crave ${{ secrets.CRAVE_FLAGS }} devspace -- "echo 'Looking for runner...'
 
           if [ -f actions-runner/run.sh ]; then
             echo 'Runner found!'
           else
-            echo 'Error! Runner not found!'
+            echo 'Runner not found!'
             exit 1
           fi
 
           if tmux has-session -t ghactions 2>/dev/null; then
-            echo 'Runner is already running'
+            echo 'Runner already running'
           else
             tmux kill-session -t ghactions 2>/dev/null || true
             tmux new-session -d -s ghactions
@@ -132,78 +132,76 @@ jobs:
 
 
   prepare:
-    name: Prepare for crDroid 16.0
+    name: Prepare Evolution X
     runs-on: ubuntu-latest
 
+    outputs:
+      PROJECTFOLDER: ${{ steps.variables.outputs.PROJECTFOLDER }}
+      PROJECTID: ${{ steps.variables.outputs.PROJECTID }}
+      REPO_INIT: ${{ steps.variables.outputs.REPO_INIT }}
+      LUNCH: ${{ steps.variables.outputs.LUNCH }}
+      LOCAL_MANIFEST: ${{ steps.variables.outputs.LOCAL_MANIFEST }}
+
     steps:
-      - name: Check-out to repository
+
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Credentials
+      - name: Check credentials
         run: |
           if [[ -z "${{ secrets.CRAVE_TOKEN }}" || -z "${{ secrets.CRAVE_USERNAME }}" ]]; then
-            echo "Crave Credentials Not Configured! Exiting..."
+            echo "Crave credentials are not configured!"
             exit 1
           fi
 
           bash scripts/env-checker.sh
 
-      - name: Set Project variables
-        id: proj-variables
+      - name: Set project variables
+        id: variables
         shell: bash
         run: |
           set -e
 
-          BASE_PROJECT="${{ github.event.inputs.BASE_PROJECT }}"
-          PRODUCT_NAME="${{ github.event.inputs.PRODUCT_NAME }}"
+          BRANCH="${{ github.event.inputs.EVOLUTION_BRANCH }}"
+          PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
-          LOCAL_MANIFEST_INPUT="${{ github.event.inputs.LOCAL_MANIFEST }}"
-          LOCAL_MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
+          MANIFEST="${{ github.event.inputs.LOCAL_MANIFEST }}"
+          MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
+          PROJECTID="${{ github.event.inputs.CRAVE_PROJECT_ID }}"
 
-          #
-          # Crave base project:
-          # LineageOS 22.1 project is used only as the
-          # Crave storage/base project.
-          #
-          PROJECTFOLDER="/crave-devspaces/Lineage22"
-          PROJECTID="93"
+          PROJECTFOLDER="/crave-devspaces/EvolutionX-${BRANCH}"
 
-          #
-          # IMPORTANT:
-          # Always initialize the actual crDroid 16.0 source tree.
-          #
-          REPO_INIT="repo init -u https://github.com/crdroidandroid/android.git -b 16.0 --git-lfs --no-clone-bundle"
+          REPO_INIT="repo init -u https://github.com/Evolution-X/manifest.git -b ${BRANCH} --git-lfs --depth=1"
 
-          #
-          # crDroid device target.
-          #
-          LUNCH="brunch ${PRODUCT_NAME}"
+          LUNCH="${PRODUCT}-${BUILD_TYPE}"
 
-          #
-          # Local manifest.
-          #
-          if [[ "$LOCAL_MANIFEST_INPUT" =~ ^git[[:space:]]+clone[[:space:]] ]]; then
-            LOCAL_MANIFEST="$LOCAL_MANIFEST_INPUT"
+          if [[ "$MANIFEST" =~ ^git[[:space:]]+clone[[:space:]] ]]; then
 
-          elif [[ "$LOCAL_MANIFEST_INPUT" =~ \.xml/?$ ]]; then
-            LOCAL_MANIFEST_URL="${LOCAL_MANIFEST_INPUT%/}"
+            LOCAL_MANIFEST="$MANIFEST"
+
+          elif [[ "$MANIFEST" =~ \.xml/?$ ]]; then
+
+            LOCAL_MANIFEST_URL="${MANIFEST%/}"
 
             LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* && curl -L -o .repo/local_manifests/local_manifest.xml \"$LOCAL_MANIFEST_URL\""
 
           else
-            LOCAL_MANIFEST="git clone --depth=1 -b \"$LOCAL_MANIFEST_BRANCH\" \"$LOCAL_MANIFEST_INPUT\" .repo/local_manifests"
+
+            LOCAL_MANIFEST="git clone --depth=1 -b \"$MANIFEST_BRANCH\" \"$MANIFEST\" .repo/local_manifests"
+
           fi
 
           echo "========================================"
-          echo "ROM          : crDroid 16.0"
-          echo "Base Project : $BASE_PROJECT"
+          echo "Base Project : Evolution X"
+          echo "Branch       : $BRANCH"
           echo "Project ID   : $PROJECTID"
           echo "Project Path : $PROJECTFOLDER"
-          echo "Product      : $PRODUCT_NAME"
+          echo "Device       : ${{ github.event.inputs.DEVICE_NAME }}"
+          echo "Product      : $PRODUCT"
           echo "Build Type   : $BUILD_TYPE"
-          echo "Build Target : $LUNCH"
-          echo "Manifest     : $LOCAL_MANIFEST_INPUT"
-          echo "Manifest Br. : $LOCAL_MANIFEST_BRANCH"
+          echo "Lunch        : $LUNCH"
+          echo "Manifest     : $MANIFEST"
+          echo "Manifest Br. : $MANIFEST_BRANCH"
           echo "========================================"
 
           echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_OUTPUT"
@@ -212,59 +210,33 @@ jobs:
           echo "LUNCH=$LUNCH" >> "$GITHUB_OUTPUT"
           echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_OUTPUT"
 
-          echo "LUNCH=$LUNCH" >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_ENV"
-
-      - name: Display Run Parameters
-        run: |
-          echo "::group::User Environment Variables"
-
-          echo "Base Project: ${{ github.event.inputs.BASE_PROJECT }}"
-          echo "crDroid Init: ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
-          echo "Removals: ${{ github.event.inputs.REMOVALS }}"
-          echo "Local Manifest: ${{ github.event.inputs.LOCAL_MANIFEST }}"
-          echo "Local Manifest Branch: ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
-          echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
-          echo "Product Name: ${{ github.event.inputs.PRODUCT_NAME }}"
-          echo "Build Target: ${{ env.LUNCH }}"
-          echo "Build Command: ${{ github.event.inputs.BUILD_COMMAND }}"
-          echo "Build Type: ${{ github.event.inputs.BUILD_TYPE }}"
-          echo "Clean Build: ${{ github.event.inputs.CLEAN_BUILD }}"
-
-          echo "::endgroup::"
-
-    outputs:
-      PROJECTFOLDER: ${{ steps.proj-variables.outputs.PROJECTFOLDER }}
-      PROJECTID: ${{ steps.proj-variables.outputs.PROJECTID }}
-      REPO_INIT: ${{ steps.proj-variables.outputs.REPO_INIT }}
-      LUNCH: ${{ steps.proj-variables.outputs.LUNCH }}
-      LOCAL_MANIFEST: ${{ steps.proj-variables.outputs.LOCAL_MANIFEST }}
-
 
   test:
-    name: Test crDroid Local Manifest
+    name: Test Local Manifest
     needs: prepare
     runs-on: ubuntu-latest
 
+    outputs:
+      PROJECTFOLDER: ${{ needs.prepare.outputs.PROJECTFOLDER }}
+      PROJECTID: ${{ needs.prepare.outputs.PROJECTID }}
+      REPO_INIT: ${{ needs.prepare.outputs.REPO_INIT }}
+      LUNCH: ${{ needs.prepare.outputs.LUNCH }}
+      LOCAL_MANIFEST: ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
+
     steps:
 
-      - name: Set Repo Project
+      - name: Set variables
         run: |
-          PROJECTFOLDER="${{ needs.prepare.outputs.PROJECTFOLDER }}"
-          PROJECTID="${{ needs.prepare.outputs.PROJECTID }}"
-          REPO_INIT="${{ needs.prepare.outputs.REPO_INIT }}"
-          LUNCH="${{ needs.prepare.outputs.LUNCH }}"
-          LOCAL_MANIFEST="${{ needs.prepare.outputs.LOCAL_MANIFEST }}"
+          echo "PROJECTFOLDER=${{ needs.prepare.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
+          echo "PROJECTID=${{ needs.prepare.outputs.PROJECTID }}" >> "$GITHUB_ENV"
+          echo "REPO_INIT=${{ needs.prepare.outputs.REPO_INIT }}" >> "$GITHUB_ENV"
+          echo "LUNCH=${{ needs.prepare.outputs.LUNCH }}" >> "$GITHUB_ENV"
+          echo "LOCAL_MANIFEST=${{ needs.prepare.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
 
-          echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_ENV"
-          echo "PROJECTID=$PROJECTID" >> "$GITHUB_ENV"
-          echo "REPO_INIT=$REPO_INIT" >> "$GITHUB_ENV"
-          echo "LUNCH=$LUNCH" >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_ENV"
-
-      - name: Configure the 'repo' environment
+      - name: Install repo
         run: |
           if ! command -v repo >/dev/null 2>&1; then
+
             mkdir -p ~/bin
 
             curl -L https://storage.googleapis.com/git-repo-downloads/repo \
@@ -273,63 +245,49 @@ jobs:
             chmod a+x ~/bin/repo
 
             sudo ln -sf "/home/$(whoami)/bin/repo" /usr/bin/repo
+
           fi
 
-      - name: Set-up 'git' credential(s)
+      - name: Git configuration
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      - name: Test crDroid Manifest
+      - name: Test manifest
         shell: bash
         run: |
           set -e
 
           rm -rf tester
-          mkdir -p tester
+          mkdir tester
           cd tester
 
-          echo "Initializing crDroid 16.0..."
           $REPO_INIT
 
-          echo "Installing local manifest..."
           bash -c "$LOCAL_MANIFEST"
 
-          echo "Testing manifest sync..."
+          timeout 1m repo sync --force-sync || {
 
-          timeout 10m repo sync --force-sync --no-clone-bundle || {
             exit_code=$?
 
             if [ "$exit_code" -ne 124 ]; then
-              echo "Manifest sync failed with exit code $exit_code"
+              echo "Manifest test failed!"
               exit "$exit_code"
             fi
 
-            echo "Manifest sync timed out."
-            exit 1
+            echo "Manifest sync timed out after 1 minute."
+
           }
 
-          echo "Manifest sync completed successfully."
-
-          echo "Checking critical repositories..."
-
-          test -d frameworks/base
-          test -d packages/providers/ContactsProvider
-          test -d device/xiaomi/flame
-          test -d vendor/xiaomi/flame
-
-          echo "Critical repositories exist."
-
-          echo "Checking device branch..."
-
-          git -C device/xiaomi/flame rev-parse --abbrev-ref HEAD || true
-          git -C vendor/xiaomi/flame rev-parse --abbrev-ref HEAD || true
+          du -csh .
 
           rm -rf .repo
 
+        timeout-minutes: 10
+
 
   build:
-    name: Build crDroid 16.0 using foss.crave.io
+    name: Build Evolution X
     timeout-minutes: 1440
     needs: test
     runs-on: self-hosted
@@ -339,34 +297,21 @@ jobs:
 
     steps:
 
-      - name: Set Repo Project
+      - name: Set project variables
         run: |
-          PROJECTFOLDER="${{ needs.prepare.outputs.PROJECTFOLDER }}"
-          PROJECTID="${{ needs.prepare.outputs.PROJECTID }}"
-          REPO_INIT="${{ needs.prepare.outputs.REPO_INIT }}"
-          LUNCH="${{ needs.prepare.outputs.LUNCH }}"
-          LOCAL_MANIFEST="${{ needs.prepare.outputs.LOCAL_MANIFEST }}"
+          echo "PROJECTFOLDER=${{ needs.test.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
+          echo "PROJECTID=${{ needs.test.outputs.PROJECTID }}" >> "$GITHUB_ENV"
+          echo "REPO_INIT=${{ needs.test.outputs.REPO_INIT }}" >> "$GITHUB_ENV"
+          echo "LUNCH=${{ needs.test.outputs.LUNCH }}" >> "$GITHUB_ENV"
+          echo "LOCAL_MANIFEST=${{ needs.test.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
 
-          echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_ENV"
-          echo "PROJECTID=$PROJECTID" >> "$GITHUB_ENV"
-          echo "REPO_INIT=$REPO_INIT" >> "$GITHUB_ENV"
-          echo "LUNCH=$LUNCH" >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_ENV"
-
-      - name: Telegram Notification
+      - name: Telegram Build Started
         continue-on-error: true
         run: |
-          send_telegram_message() {
-            local message="$1"
-
-            curl -s -X POST \
-              "https://api.telegram.org/bot$botToken/sendMessage" \
-              -d chat_id="$chatId" \
-              -d text="$message" \
-              -d parse_mode="Markdown"
-          }
-
-          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has been queued%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
+          curl -s -X POST \
+            "https://api.telegram.org/bot$botToken/sendMessage" \
+            -d chat_id="$chatId" \
+            -d text="Evolution X build queued%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.EVOLUTION_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
@@ -376,37 +321,12 @@ jobs:
         run: |
           rm -rf *
 
-      - name: Check for a broken .bashrc
-        continue-on-error: true
-        run: |
-          (
-            set +e
-
-            output=$(source ~/.bashrc 2>&1)
-            status=$?
-
-            echo "$output"
-
-            if [[ $status -ne 0 ]]; then
-              echo "You have a broken .bashrc, please contact a Crave.io Administrator"
-              exit 1
-            fi
-
-            if echo "$output" | grep -q "cannot execute"; then
-              echo "You have a broken .bashrc, please contact a Crave.io Administrator"
-              exit 1
-            fi
-          )
-
-      - name: Create Project Folders
+      - name: Create project folders
         shell: bash
         run: |
           set -e
 
-          echo "DCDEVSPACE status: ${DCDEVSPACE}"
-
           if [[ "$DCDEVSPACE" != *1* ]]; then
-            echo "Symlinking devspace folder"
 
             mkdir -p devspace
 
@@ -415,52 +335,45 @@ jobs:
             sudo ln -sfn "${PWD}/devspace" /crave-devspaces
 
             sudo chmod 777 /crave-devspaces
-          else
-            echo "Already running in devspace. Skipping symlink setup."
+
           fi
 
           if [[ "$DCDEVSPACE" == *1* ]]; then
-            echo "Checking for registered Crave clone..."
 
             if crave clone list --json |
               jq -e '.clones[] | select(."Cloned At"=="'"$PROJECTFOLDER"'")' >/dev/null 2>&1
             then
-              echo "Crave clone already exists:"
-              echo "$PROJECTFOLDER"
+
+              echo "Crave clone already exists."
+
             else
-              echo "Creating Crave clone:"
-              echo "$PROJECTFOLDER"
 
               crave clone create \
                 --projectID "$PROJECTID" \
                 "$PROJECTFOLDER"
+
             fi
+
           else
+
             mkdir -p "$PROJECTFOLDER"
+
           fi
 
-      - name: Check-out to repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set-up workspace environment
-        run: |
-          cd "$PROJECTFOLDER"
-          mkdir -p "${{ github.event.inputs.DEVICE_NAME }}"
-
-      - name: Set-up 'git' credential(s)
+      - name: Configure git
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      - name: Configure the 'crave' environment
+      - name: Configure Crave
         run: |
-          echo "DCDEVSPACE status: ${DCDEVSPACE}"
-
           mkdir -p "$PROJECTFOLDER/.repo/manifests"
 
-          if [[ "$DCDEVSPACE" == *1* ]]; then
-            echo "Already running in devspace."
-          else
+          if [[ "$DCDEVSPACE" != *1* ]]; then
+
             curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
 
             mv "${PWD}/crave" "${HOME}/bin/"
@@ -472,63 +385,43 @@ jobs:
             rm -f "${PWD}/crave.conf.sample"
 
             cp "${PWD}/crave.conf" "$PROJECTFOLDER/"
+
           fi
 
           if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
+
             cp configs/crave/crave.yaml.aosp \
               "$PROJECTFOLDER/.repo/manifests/crave.yaml"
 
-            echo "Using default Crave AOSP configuration."
           else
+
             printf '%s\n' "${{ secrets.CUSTOM_YAML }}" \
               > "$PROJECTFOLDER/.repo/manifests/crave.yaml"
 
-            echo "Using custom Crave configuration."
           fi
 
         env:
           CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
-      - name: Initialize clean crDroid source tree
+      - name: Initialize Evolution X
         shell: bash
         run: |
-          set -e
-
           cd "$PROJECTFOLDER"
 
-          echo "========================================"
-          echo "Preparing clean crDroid 16.0 source tree"
-          echo "========================================"
+          if crave clone list --json |
+            jq -e '.clones[] | select(."Cloned At"=="'"$PROJECTFOLDER"'")' >/dev/null 2>&1
+          then
 
-          #
-          # Remove any old local manifests before initializing.
-          #
-          rm -rf .repo/local_manifests
+            echo "Using existing Crave clone."
 
-          #
-          # Always reinitialize the manifest.
-          #
-          $REPO_INIT
+          else
 
-          echo "crDroid manifest initialized."
+            $REPO_INIT
 
-          #
-          # Install our device manifest.
-          #
-          bash -c "$LOCAL_MANIFEST"
+          fi
 
-          echo "Local manifest installed."
-
-          #
-          # Show manifest revision.
-          #
-          echo "===== MANIFEST REVISION ====="
-          repo manifest -r | grep -E \
-            'frameworks/base|packages/providers/ContactsProvider|device/xiaomi/flame|vendor/xiaomi/flame' \
-            || true
-
-      - name: Start compilation through 'crave'
+      - name: Build Evolution X
         shell: bash
         run: |
           set -e
@@ -542,7 +435,6 @@ jobs:
           fi
 
           if [[ -n "${{ secrets.PAID }}" ]]; then
-            echo "Paid Build... Tokens will be consumed."
             PAID="--platform aosp-silver"
           else
             PAID=""
@@ -550,155 +442,59 @@ jobs:
 
           REMOVALS="${{ github.event.inputs.REMOVALS }}"
 
-          echo "========================================"
-          echo "Starting crDroid 16.0 build"
-          echo "Project ID : $PROJECTID"
-          echo "Project    : $PROJECTFOLDER"
-          echo "Target     : $LUNCH"
-          echo "========================================"
-
           crave run \
             --projectID "$PROJECTID" \
             --no-patch \
             $PAID \
             $CLEAN \
             -- \
-            "set -e && \
-            echo '===== CLEANING OLD LOCAL MANIFESTS =====' && \
-            rm -rf .repo/local_manifests && \
-            echo '===== INITIALIZING crDroid 16.0 =====' && \
-            ${BUILD_DIFFERENT_ROM} && \
-            echo '===== INSTALLING DEVICE MANIFEST =====' && \
+            "rm -rf .repo/local_manifests/ ${REMOVALS} && \
             ${LOCAL_MANIFEST} && \
-            echo '===== RESYNCING crDroid 16.0 =====' && \
             if [ -f /usr/bin/resync ]; then \
               /usr/bin/resync; \
             else \
               /opt/crave/resync.sh; \
             fi && \
-            echo '===== SOURCE REVISION CHECK =====' && \
-            echo 'frameworks/base:' && \
-            git -C frameworks/base rev-parse HEAD && \
-            echo 'ContactsProvider:' && \
-            git -C packages/providers/ContactsProvider rev-parse HEAD && \
-            echo 'device/xiaomi/flame:' && \
-            git -C device/xiaomi/flame rev-parse HEAD && \
-            echo 'vendor/xiaomi/flame:' && \
-            git -C vendor/xiaomi/flame rev-parse HEAD && \
-            echo '===== SQLITE TOKENIZER CHECK =====' && \
-            grep -n 'OPTION_CHECK_BRACKETS' frameworks/base/core/java/android/database/sqlite/SQLiteTokenizer.java || true && \
-            echo '===== CONTACTS PROVIDER CHECK =====' && \
-            grep -n 'OPTION_CHECK_BRACKETS' packages/providers/ContactsProvider/src/com/android/providers/contacts/util/SelectionBuilder.java || true && \
-            echo '===== ENVIRONMENT SETUP =====' && \
             export BUILD_USERNAME='${{ github.actor }}' && \
             export BUILD_HOSTNAME=crave && \
             source build/envsetup.sh && \
-            echo 'ROM: crDroid 16.0' && \
-            echo 'Repository: ${{ github.repository }}' && \
-            echo 'Run ID: ${{ github.run_id }}' && \
-            echo '===== SELECTING DEVICE =====' && \
+            echo 'Evolution X branch: ${{ github.event.inputs.EVOLUTION_BRANCH }}' && \
+            echo 'Device: ${{ github.event.inputs.DEVICE_NAME }}' && \
+            echo 'Product: ${{ github.event.inputs.PRODUCT_NAME }}' && \
+            echo 'Lunch: ${LUNCH}' && \
             ${LUNCH} && \
-            echo '===== INSTALLCLEAN =====' && \
-            make installclean && \
-            echo '===== BUILDING =====' && \
-            ${{ github.event.inputs.BUILD_COMMAND }}"
+            echo 'Starting Evolution X build...' && \
+            ${{ github.event.inputs.BUILD_COMMAND }} -j\$(nproc --all)"
 
-        timeout-minutes: 1440
+      - name: Show artifacts
+        if: always()
+        run: |
+          cd "$PROJECTFOLDER" || exit 0
 
-      - name: Telegram Notification
-        if: ${{ success() }}
+          find out/target/product/${{ github.event.inputs.DEVICE_NAME }} \
+            -maxdepth 2 \
+            -type f \
+            \( \
+              -name "*.zip" \
+              -o -name "*.img" \
+            \) \
+            -print 2>/dev/null || true
+
+      - name: Telegram Build Finished
+        if: always()
         continue-on-error: true
         run: |
-          send_telegram_message() {
-            local message="$1"
-
-            curl -s -X POST \
-              "https://api.telegram.org/bot$botToken/sendMessage" \
-              -d chat_id="$chatId" \
-              -d text="$message" \
-              -d parse_mode="Markdown"
-          }
-
-          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has Succeeded!%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
-
-        env:
-          chatId: ${{ secrets.TELEGRAM_TO }}
-          botToken: ${{ secrets.TELEGRAM_TOKEN }}
-
-      - name: Telegram Notification
-        if: ${{ cancelled() || failure() }}
-        continue-on-error: true
-        run: |
-          send_telegram_message() {
-            local message="$1"
-
-            curl -s -X POST \
-              "https://api.telegram.org/bot$botToken/sendMessage" \
-              -d chat_id="$chatId" \
-              -d text="$message" \
-              -d parse_mode="Markdown"
-          }
-
-          if [ "$jobStatus" = "cancelled" ]; then
-            jobMessage="has been Cancelled!"
+          if [[ "${{ job.status }}" == "success" ]]; then
+            STATUS="SUCCESS"
           else
-            jobMessage="has Failed!"
+            STATUS="FAILED"
           fi
 
-          send_telegram_message "crDroid 16.0%0ABuild for ${{ github.event.inputs.DEVICE_NAME }} $jobMessage%0ACheck Progress at:%0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
+          curl -s -X POST \
+            "https://api.telegram.org/bot$botToken/sendMessage" \
+            -d chat_id="$chatId" \
+            -d text="Evolution X build $STATUS%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.EVOLUTION_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
           botToken: ${{ secrets.TELEGRAM_TOKEN }}
-          jobStatus: ${{ job.status }}
-
-      - name: Execute if the job is cancelled
-        if: ${{ cancelled() }}
-        run: |
-          cd "$PROJECTFOLDER"
-          crave stop --all
-
-      - name: Upload build artifact(s)
-        continue-on-error: true
-        run: |
-          cd "$PROJECTFOLDER"
-
-          echo "${{ secrets.GITHUB_TOKEN }}" > token.txt
-
-          crave push token.txt \
-            -d "$(crave ssh -- pwd | grep -v Select | sed -s 's/\r//g')/"
-
-          crave ssh -- \
-            "export GH_UPLOAD_LIMIT='${{ secrets.GH_UPLOAD_LIMIT }}'; \
-            bash /opt/crave/github-actions/upload.sh \
-            '${{ github.run_id }}' \
-            '${{ github.event.inputs.DEVICE_NAME }}' \
-            '${{ github.repository }}' \
-            'crDroid-16.0-${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}' \
-            '${{ secrets.EXTRA_FILES }}'"
-
-      - name: Display error.log
-        if: ${{ failure() }}
-        id: errorlog
-        run: |
-          cd "$PROJECTFOLDER"
-
-          crave ssh -- sleep 1
-
-          crave pull out/error.log
-
-          echo "Displaying out/error.log"
-
-          cat out/error.log
-
-      - name: Upload Using telegram-upload
-        run: |
-          cd "$PROJECTFOLDER"
-
-          crave ssh -- \
-            "export TG_UPLOAD_LIMIT='${{ secrets.TG_UPLOAD_LIMIT }}'; \
-            bash /opt/crave/telegram/upload.sh \
-            '${{ github.event.inputs.DEVICE_NAME }}' \
-            '${{ secrets.EXTRA_FILES }}'"
-
-        continue-on-error: true
