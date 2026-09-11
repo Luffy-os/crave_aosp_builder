@@ -170,20 +170,18 @@ jobs:
           MANIFEST="${{ github.event.inputs.LOCAL_MANIFEST }}"
           MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
 
-          # IMPORTANT:
-          # Crave project 93 is registered at this exact path.
+          # Crave Project 93 is registered here.
           PROJECTFOLDER="/crave-devspaces/Lineage22"
 
-          # Evolution X Android 16
+          # Evolution X Android 16 QPR2.
           REPO_INIT="repo init -u https://github.com/Evolution-X/manifest -b ${BRANCH} --git-lfs"
 
-          # Evolution X bka requires the bp4a lunch suffix.
+          # Evolution X bka lunch target.
           LUNCH="${PRODUCT}-bp4a-${BUILD_TYPE}"
 
+          # Local manifest repository.
           if [[ "$MANIFEST" =~ ^git[[:space:]]+clone[[:space:]] ]]; then
-
             LOCAL_MANIFEST="$MANIFEST"
-
           elif [[ "$MANIFEST" =~ \.xml/?$ ]]; then
 
             LOCAL_MANIFEST_URL="${MANIFEST%/}"
@@ -197,6 +195,8 @@ jobs:
           fi
 
           echo "========================================"
+          echo "Evolution X Build Configuration"
+          echo "========================================"
           echo "Base Project : Evolution X"
           echo "Branch       : ${BRANCH}"
           echo "Crave ID     : ${PROJECTID}"
@@ -206,6 +206,7 @@ jobs:
           echo "Build Type   : ${BUILD_TYPE}"
           echo "Lunch        : ${LUNCH}"
           echo "Manifest     : ${MANIFEST}"
+          echo "Job count    : Build system default"
           echo "========================================"
 
           echo "PROJECTFOLDER=${PROJECTFOLDER}" >> "$GITHUB_OUTPUT"
@@ -243,16 +244,17 @@ jobs:
       - name: Install repo
         run: |
           if ! command -v repo >/dev/null 2>&1; then
-
             mkdir -p ~/bin
 
-            curl -L https://storage.googleapis.com/git-repo-downloads/repo \
+            curl -L \
+              https://storage.googleapis.com/git-repo-downloads/repo \
               -o ~/bin/repo
 
             chmod a+x ~/bin/repo
 
-            sudo ln -sf "/home/$(whoami)/bin/repo" /usr/bin/repo
-
+            sudo ln -sf \
+              "/home/$(whoami)/bin/repo" \
+              /usr/bin/repo
           fi
 
       - name: Configure git
@@ -266,22 +268,29 @@ jobs:
           set -e
 
           rm -rf tester
+
           mkdir -p tester
+
           cd tester
 
-          echo "Initializing Evolution X..."
+          echo "========================================"
+          echo "Initializing Evolution X"
+          echo "========================================"
 
           $REPO_INIT
 
-          echo "Adding flame local manifest..."
+          echo "========================================"
+          echo "Adding flame local manifest"
+          echo "========================================"
 
           bash -c "$LOCAL_MANIFEST"
 
-          echo "Testing manifest sync..."
+          echo "========================================"
+          echo "Testing manifest sync"
+          echo "========================================"
 
           timeout 1m repo sync \
             -c \
-            -j2 \
             --force-sync \
             --no-clone-bundle \
             --no-tags || {
@@ -295,7 +304,6 @@ jobs:
 
               echo "Manifest sync timed out after 1 minute."
               echo "This is expected for a large Android source tree."
-
           }
 
           du -csh .
@@ -328,7 +336,6 @@ jobs:
           echo "LUNCH=${{ needs.test.outputs.LUNCH }}" >> "$GITHUB_ENV"
           echo "LOCAL_MANIFEST=${{ needs.test.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
 
-
       - name: Telegram Build Started
         continue-on-error: true
         run: |
@@ -341,11 +348,9 @@ jobs:
           chatId: ${{ secrets.TELEGRAM_TO }}
           botToken: ${{ secrets.TELEGRAM_TOKEN }}
 
-
       - name: Cleanup runner workspace
         run: |
           rm -rf *
-
 
       - name: Check .bashrc
         continue-on-error: true
@@ -354,6 +359,7 @@ jobs:
             set +e
 
             output=$(source ~/.bashrc 2>&1)
+
             status=$?
 
             echo "$output"
@@ -369,42 +375,45 @@ jobs:
             fi
           )
 
-
       - name: Checkout workflow repository
         uses: actions/checkout@v4
-
 
       - name: Configure git
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-
       - name: Configure Crave
         run: |
           echo "DCDEVSPACE status: ${DCDEVSPACE}"
 
-          mkdir -p "$PROJECTFOLDER/.repo/manifests"
-
           if [[ "$DCDEVSPACE" == *1* ]]; then
-
             echo "Already running in Crave devspace."
-
           else
+            mkdir -p "${HOME}/bin"
 
-            curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+            curl -s \
+              https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh \
+              | bash -s --
 
             mv "${PWD}/crave" "${HOME}/bin/"
 
-            sudo ln -sf "/home/${USER}/bin/crave" /usr/bin/crave
+            sudo ln -sf \
+              "/home/${USER}/bin/crave" \
+              /usr/bin/crave
 
             envsubst < "${PWD}/crave.conf.sample" >> "${PWD}/crave.conf"
 
             rm -f "${PWD}/crave.conf.sample"
-
-            cp "${PWD}/crave.conf" "$PROJECTFOLDER/"
-
           fi
+
+          if [ ! -d "$PROJECTFOLDER" ]; then
+            echo "ERROR: Crave project directory does not exist:"
+            echo "$PROJECTFOLDER"
+            exit 1
+          fi
+
+          mkdir -p "$PROJECTFOLDER/.repo/manifests"
 
           if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
 
@@ -427,6 +436,40 @@ jobs:
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
 
+      - name: Verify Crave project
+        shell: bash
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "Verifying Crave project"
+          echo "========================================"
+
+          echo "Project ID:"
+          echo "$PROJECTID"
+
+          echo "Project path:"
+          echo "$PROJECTFOLDER"
+
+          cd "$PROJECTFOLDER"
+
+          echo "Current directory:"
+          pwd
+
+          echo "Directory contents:"
+          ls -la
+
+          echo "Crave executable:"
+          command -v crave
+
+          echo "Crave version:"
+          crave --version || true
+
+          echo "========================================"
+          echo "Crave project verification complete"
+          echo "========================================"
+
+
       - name: Prepare Evolution X source
         shell: bash
         run: |
@@ -445,24 +488,28 @@ jobs:
           echo "Evolution branch:"
           echo "${{ github.event.inputs.EVOLUTION_BRANCH }}"
 
-          if [ ! -d "$PROJECTFOLDER/.repo" ]; then
+          cd "$PROJECTFOLDER"
+
+          echo "Current directory:"
+          pwd
+
+          if [ ! -d ".repo" ]; then
 
             echo "No repo metadata found."
             echo "Initializing Evolution X..."
-
-            cd "$PROJECTFOLDER"
 
             $REPO_INIT
 
           else
 
             echo "Existing repo metadata detected."
-
-            cd "$PROJECTFOLDER"
+            echo "Reusing existing Evolution X repo client."
 
             $REPO_INIT
 
           fi
+
+          echo "Evolution X repo initialized."
 
 
       - name: Start Evolution X build
@@ -481,7 +528,20 @@ jobs:
           echo "Product       : ${{ github.event.inputs.PRODUCT_NAME }}"
           echo "Lunch         : $LUNCH"
           echo "Build command : ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "Job count     : Build system default"
           echo "========================================"
+
+          # Crave determines the project from the current directory.
+          cd "$PROJECTFOLDER"
+
+          echo "Current directory before crave run:"
+          pwd
+
+          echo "========================================"
+          echo "Checking Crave project"
+          echo "========================================"
+
+          crave project info || true
 
           if [ "${{ github.event.inputs.CLEAN_BUILD }}" = "yes" ]; then
             CLEAN="--clean"
@@ -495,7 +555,9 @@ jobs:
             PAID=""
           fi
 
-          REMOVALS="${{ github.event.inputs.REMOVALS }}"
+          echo "========================================"
+          echo "Launching Crave"
+          echo "========================================"
 
           crave run \
             --projectID "$PROJECTID" \
@@ -505,29 +567,45 @@ jobs:
             -- \
             "set -e && \
             cd '$PROJECTFOLDER' && \
+            echo '========================================' && \
+            echo 'Initializing Evolution X bka' && \
+            echo '========================================' && \
             rm -rf .repo/local_manifests/ && \
             ${REPO_INIT} && \
+            echo '========================================' && \
+            echo 'Installing local flame manifest' && \
+            echo '========================================' && \
             ${LOCAL_MANIFEST} && \
+            echo '========================================' && \
+            echo 'Synchronizing source' && \
+            echo '========================================' && \
             if [ -f /usr/bin/resync ]; then \
               /usr/bin/resync; \
-            else \
+            elif [ -f /opt/crave/resync.sh ]; then \
               /opt/crave/resync.sh; \
+            else \
+              repo sync -c --force-sync --no-clone-bundle --no-tags; \
             fi && \
+            echo '========================================' && \
+            echo 'Source synchronization complete' && \
+            echo '========================================' && \
             export BUILD_USERNAME='${{ github.actor }}' && \
             export BUILD_HOSTNAME=crave && \
             source build/envsetup.sh && \
             echo '========================================' && \
-            echo 'Evolution X source synchronized' && \
+            echo 'Evolution X environment loaded' && \
             echo '========================================' && \
             echo 'Branch: ${{ github.event.inputs.EVOLUTION_BRANCH }}' && \
             echo 'Device: ${{ github.event.inputs.DEVICE_NAME }}' && \
             echo 'Product: ${{ github.event.inputs.PRODUCT_NAME }}' && \
             echo 'Lunch: ${LUNCH}' && \
             echo '========================================' && \
-            ${LUNCH} && \
+            lunch '${LUNCH}' && \
+            echo '========================================' && \
             echo 'Lunch successful!' && \
-            echo 'Starting Evolution X build...' && \
-            ${{ github.event.inputs.BUILD_COMMAND }} -j\$(nproc --all)"
+            echo '========================================' && \
+            echo 'Starting Evolution X build using default jobs...' && \
+            ${{ github.event.inputs.BUILD_COMMAND }}"
 
 
       - name: Show build artifacts
@@ -537,10 +615,19 @@ jobs:
           echo "Evolution X artifacts"
           echo "========================================"
 
-          if [ -d "$PROJECTFOLDER/out/target/product/${{ github.event.inputs.DEVICE_NAME }}" ]; then
+          OUTPUT_DIR="$PROJECTFOLDER/out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
 
-            find "$PROJECTFOLDER/out/target/product/${{ github.event.inputs.DEVICE_NAME }}" \
-              -maxdepth 2 \
+          echo "Output directory:"
+          echo "$OUTPUT_DIR"
+
+          if [ -d "$OUTPUT_DIR" ]; then
+
+            echo "========================================"
+            echo "Images and ZIP files"
+            echo "========================================"
+
+            find "$OUTPUT_DIR" \
+              -maxdepth 3 \
               -type f \
               \( \
                 -name "*.zip" \
