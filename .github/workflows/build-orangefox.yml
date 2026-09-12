@@ -1,0 +1,96 @@
+name: Build OrangeFox
+
+on:
+  workflow_dispatch:
+
+env:
+  CRAVE_PROJECT_ID: 93
+  PROJECTFOLDER: /crave-devspaces/Lineage22
+  FOX_BRANCH: 14.1
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Start OrangeFox build
+        env:
+          CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
+        run: |
+          set -e
+
+          cd "$PROJECTFOLDER"
+
+          jq '.projects = []' "$HOME/crave.conf" > "$HOME/crave.conf.tmp"
+          mv "$HOME/crave.conf.tmp" "$HOME/crave.conf"
+
+          crave $CRAVE_FLAGS run \
+            --no-patch \
+            --projectID "$CRAVE_PROJECT_ID" \
+            -- "set -e
+
+            rm -rf orangefox
+
+            git clone https://gitlab.com/OrangeFox/sync.git orangefox-sync
+
+            ./orangefox-sync/orangefox_sync.sh \
+              --branch $FOX_BRANCH \
+              --path /crave-devspaces/Lineage22/orangefox
+
+            cd /crave-devspaces/Lineage22/orangefox
+
+            rm -rf device/xiaomi/flame
+            git clone \
+              -b lineage-23.2 \
+              --depth=1 \
+              https://github.com/Luffy-os/device_xiaomi_flame \
+              device/xiaomi/flame
+
+            rm -rf vendor/xiaomi/flame
+            git clone \
+              -b lineage-23.2 \
+              --depth=1 \
+              https://github.com/bitstash-io/vendor_xiaomi_flame \
+              vendor/xiaomi/flame
+
+            rm -rf kernel/xiaomi/flame
+            git clone \
+              -b lineage-23.2 \
+              --depth=1 \
+              https://github.com/bitstash-io/device_xiaomi_flame-kernel \
+              kernel/xiaomi/flame
+
+            rm -rf vendor/xiaomi/flame-firmware
+            git clone \
+              -b main \
+              --depth=1 \
+              https://github.com/bitstash-io/vendor_xiaomi_flame-firmware \
+              vendor/xiaomi/flame-firmware
+
+            rm -rf hardware/xiaomi
+            git clone \
+              -b lineage-23.2 \
+              --depth=1 \
+              https://github.com/LineageOS/android_hardware_xiaomi \
+              hardware/xiaomi
+
+            source build/envsetup.sh
+
+            lunch twrp_flame-ap2a-eng
+
+            mka adbd recoveryimage
+
+            echo '=== ORANGEFOX OUTPUT ==='
+            find out/target/product/flame \
+              -maxdepth 1 \
+              -type f \
+              \\( -name '*.img' -o -name '*.zip' \\) \
+              -exec ls -lh {} \\;
+            "
+
+      - name: Show build status
+        run: |
+          echo "OrangeFox build completed."
