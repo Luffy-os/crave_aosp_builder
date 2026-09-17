@@ -20,12 +20,12 @@ on:
       LOCAL_MANIFEST:
         description: "Local manifest repository URL"
         required: true
-        default: "https://github.com/AsTechpro20/local_manifests_flame"
+        default: "https://github.com/Luffy-os/local_manifests_flame"
 
       LOCAL_MANIFEST_BRANCH:
         description: "Local manifest branch"
         required: true
-        default: "latest"
+        default: "main"
 
       DEVICE_NAME:
         description: "Device codename"
@@ -152,14 +152,14 @@ jobs:
           MANIFEST="${{ github.event.inputs.LOCAL_MANIFEST }}"
           MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
 
-          # Project 93 is the existing registered Crave project.
+          # Registered Crave Project 93
           PROJECTFOLDER="/crave-devspaces/Lineage22"
 
           # IMPORTANT:
           # PixelOS repo init happens ONLY inside crave run.
           BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs"
 
-          # Flame product target.
+          # Flame product target
           LUNCH="lunch ${PRODUCT}-bp4a-${BUILD_TYPE}"
 
           if [[ "$MANIFEST" =~ \.xml/?$ ]]; then
@@ -185,6 +185,8 @@ jobs:
           echo "Build Type    : ${BUILD_TYPE}"
           echo "Lunch         : ${LUNCH}"
           echo "Build Command : ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "Manifest      : ${MANIFEST}"
+          echo "Manifest Branch: ${MANIFEST_BRANCH}"
           echo "========================================"
 
           echo "PROJECTFOLDER=${PROJECTFOLDER}" >> "$GITHUB_OUTPUT"
@@ -216,6 +218,7 @@ jobs:
           echo "BUILD_DIFFERENT_ROM=${{ needs.prepare.outputs.BUILD_DIFFERENT_ROM }}" >> "$GITHUB_ENV"
           echo "LUNCH=${{ needs.prepare.outputs.LUNCH }}" >> "$GITHUB_ENV"
           echo "LOCAL_MANIFEST=${{ needs.prepare.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
+
 
       - name: Telegram Build Started
         continue-on-error: true
@@ -522,7 +525,7 @@ jobs:
           else
 
             echo "Output directory not found."
-            echo "This is expected if the build output exists only on the remote Crave node."
+            echo "Build output may exist only on the remote Crave node."
 
           fi
 
