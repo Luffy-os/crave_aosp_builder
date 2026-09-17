@@ -1,16 +1,16 @@
-name: Evolution X Builder (self-hosted)
+name: PixelOS Android 17 Builder
 
 on:
   workflow_dispatch:
     inputs:
 
-      EVOLUTION_BRANCH:
-        description: "Evolution X branch"
+      PIXELOS_BRANCH:
+        description: "PixelOS branch"
         required: true
-        default: "bka"
+        default: "seventeen"
         type: choice
         options:
-          - "bka"
+          - "seventeen"
 
       CRAVE_PROJECT_ID:
         description: "Crave project ID"
@@ -20,12 +20,12 @@ on:
       LOCAL_MANIFEST:
         description: "Local manifest repository URL"
         required: true
-        default: "https://github.com/Luffy-os/local_manifests_flame"
+        default: "https://github.com/AsTechpro20/local_manifests_flame"
 
       LOCAL_MANIFEST_BRANCH:
         description: "Local manifest branch"
         required: true
-        default: "main"
+        default: "latest"
 
       DEVICE_NAME:
         description: "Device codename"
@@ -40,7 +40,7 @@ on:
       BUILD_COMMAND:
         description: "Build command"
         required: true
-        default: "m evolution"
+        default: "m bacon"
 
       BUILD_TYPE:
         description: "Build type"
@@ -111,32 +111,10 @@ jobs:
           CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
-      - name: Run Crave devspace
-        run: |
-          crave ${{ secrets.CRAVE_FLAGS }} devspace -- "
-          echo 'Looking for runner...'
-
-          if [ -f actions-runner/run.sh ]; then
-            echo 'Runner found!'
-          else
-            echo 'Runner not found!'
-            exit 1
-          fi
-
-          if tmux has-session -t ghactions 2>/dev/null; then
-            echo 'Runner already running'
-          else
-            tmux kill-session -t ghactions 2>/dev/null || true
-            tmux new-session -d -s ghactions
-            tmux send-keys -t ghactions './actions-runner/run.sh' Enter
-            echo 'Runner started'
-          fi
-          "
-
 
   prepare:
 
-    name: Prepare Evolution X
+    name: Prepare PixelOS
 
     runs-on: ubuntu-latest
 
@@ -167,29 +145,28 @@ jobs:
         run: |
           set -e
 
-          BRANCH="${{ github.event.inputs.EVOLUTION_BRANCH }}"
+          BRANCH="${{ github.event.inputs.PIXELOS_BRANCH }}"
           PROJECTID="${{ github.event.inputs.CRAVE_PROJECT_ID }}"
           PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
           MANIFEST="${{ github.event.inputs.LOCAL_MANIFEST }}"
           MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
 
-          # IMPORTANT:
-          # Project 93 is the existing LineageOS 22.1 Crave project.
+          # Project 93 is the existing registered Crave project.
           PROJECTFOLDER="/crave-devspaces/Lineage22"
 
-          # DO NOT run this repo init in the local Crave clone.
-          # It must happen INSIDE `crave run`.
-          BUILD_DIFFERENT_ROM="repo init -u https://github.com/Evolution-X/manifest -b ${BRANCH} --git-lfs"
+          # IMPORTANT:
+          # PixelOS repo init happens ONLY inside crave run.
+          BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs"
 
-          # Evolution X bka target.
+          # Flame product target.
           LUNCH="lunch ${PRODUCT}-bp4a-${BUILD_TYPE}"
 
           if [[ "$MANIFEST" =~ \.xml/?$ ]]; then
 
             LOCAL_MANIFEST_URL="${MANIFEST%/}"
 
-            LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* || true && curl -L -o .repo/local_manifests/local_manifest.xml ${LOCAL_MANIFEST_URL}"
+            LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* && curl -L -o .repo/local_manifests/local_manifest.xml ${LOCAL_MANIFEST_URL}"
 
           else
 
@@ -198,7 +175,7 @@ jobs:
           fi
 
           echo "========================================"
-          echo "Evolution X Build Configuration"
+          echo "PixelOS Android 17 Configuration"
           echo "========================================"
           echo "Crave Project : ${PROJECTID}"
           echo "Crave Path    : ${PROJECTFOLDER}"
@@ -217,109 +194,13 @@ jobs:
           echo "LOCAL_MANIFEST=${LOCAL_MANIFEST}" >> "$GITHUB_OUTPUT"
 
 
-  test:
-
-    name: Test Evolution X Manifest
-
-    needs: prepare
-
-    runs-on: ubuntu-latest
-
-    outputs:
-      PROJECTFOLDER: ${{ needs.prepare.outputs.PROJECTFOLDER }}
-      PROJECTID: ${{ needs.prepare.outputs.PROJECTID }}
-      BUILD_DIFFERENT_ROM: ${{ needs.prepare.outputs.BUILD_DIFFERENT_ROM }}
-      LUNCH: ${{ needs.prepare.outputs.LUNCH }}
-      LOCAL_MANIFEST: ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
-
-    steps:
-
-      - name: Set variables
-        run: |
-          echo "PROJECTFOLDER=${{ needs.prepare.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
-          echo "PROJECTID=${{ needs.prepare.outputs.PROJECTID }}" >> "$GITHUB_ENV"
-          echo "BUILD_DIFFERENT_ROM=${{ needs.prepare.outputs.BUILD_DIFFERENT_ROM }}" >> "$GITHUB_ENV"
-          echo "LUNCH=${{ needs.prepare.outputs.LUNCH }}" >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=${{ needs.prepare.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
-
-      - name: Install repo
-        run: |
-          if ! command -v repo >/dev/null 2>&1; then
-
-            mkdir -p ~/bin
-
-            curl -L \
-              https://storage.googleapis.com/git-repo-downloads/repo \
-              -o ~/bin/repo
-
-            chmod a+x ~/bin/repo
-
-            sudo ln -sf \
-              "/home/$(whoami)/bin/repo" \
-              /usr/bin/repo
-
-          fi
-
-      - name: Configure git
-        run: |
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-
-      - name: Test local manifest
-        shell: bash
-        run: |
-          set -e
-
-          rm -rf tester
-
-          mkdir -p tester
-
-          cd tester
-
-          echo "========================================"
-          echo "Initializing Evolution X"
-          echo "========================================"
-
-          $BUILD_DIFFERENT_ROM
-
-          echo "========================================"
-          echo "Installing flame local manifest"
-          echo "========================================"
-
-          bash -c "$LOCAL_MANIFEST"
-
-          echo "========================================"
-          echo "Testing manifest sync"
-          echo "========================================"
-
-          timeout 1m repo sync \
-            --force-sync || {
-
-              exit_code=$?
-
-              if [ "$exit_code" -ne 124 ]; then
-                echo "Manifest test failed!"
-                exit "$exit_code"
-              fi
-
-              echo "Manifest sync timed out after 1 minute."
-              echo "This is expected for a large Android source tree."
-          }
-
-          du -csh .
-
-          rm -rf .repo
-
-        timeout-minutes: 10
-
-
   build:
 
-    name: Build Evolution X
+    name: Build PixelOS Android 17
 
     timeout-minutes: 1440
 
-    needs: test
+    needs: prepare
 
     runs-on: self-hosted
 
@@ -330,11 +211,11 @@ jobs:
 
       - name: Set project variables
         run: |
-          echo "PROJECTFOLDER=${{ needs.test.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
-          echo "PROJECTID=${{ needs.test.outputs.PROJECTID }}" >> "$GITHUB_ENV"
-          echo "BUILD_DIFFERENT_ROM=${{ needs.test.outputs.BUILD_DIFFERENT_ROM }}" >> "$GITHUB_ENV"
-          echo "LUNCH=${{ needs.test.outputs.LUNCH }}" >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=${{ needs.test.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
+          echo "PROJECTFOLDER=${{ needs.prepare.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
+          echo "PROJECTID=${{ needs.prepare.outputs.PROJECTID }}" >> "$GITHUB_ENV"
+          echo "BUILD_DIFFERENT_ROM=${{ needs.prepare.outputs.BUILD_DIFFERENT_ROM }}" >> "$GITHUB_ENV"
+          echo "LUNCH=${{ needs.prepare.outputs.LUNCH }}" >> "$GITHUB_ENV"
+          echo "LOCAL_MANIFEST=${{ needs.prepare.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
 
       - name: Telegram Build Started
         continue-on-error: true
@@ -342,15 +223,17 @@ jobs:
           curl -s -X POST \
             "https://api.telegram.org/bot$botToken/sendMessage" \
             -d chat_id="$chatId" \
-            -d text="Evolution X build started%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.EVOLUTION_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -d text="PixelOS Android 17 build started%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.PIXELOS_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
           botToken: ${{ secrets.TELEGRAM_TOKEN }}
 
+
       - name: Cleanup runner workspace
         run: |
           rm -rf *
+
 
       - name: Check .bashrc
         continue-on-error: true
@@ -375,13 +258,16 @@ jobs:
             fi
           )
 
+
       - name: Checkout workflow repository
         uses: actions/checkout@v4
+
 
       - name: Configure git
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+
 
       - name: Configure Crave
         run: |
@@ -503,25 +389,25 @@ jobs:
 
           echo ""
           echo "IMPORTANT:"
-          echo "The registered LineageOS repo will NOT be re-initialized here."
-          echo "Evolution X repo init happens inside crave run."
+          echo "The registered LineageOS repository will NOT be re-initialized locally."
+          echo "PixelOS repo init happens inside crave run."
           echo ""
 
           echo "Crave clone is ready."
 
 
-      - name: Start Evolution X build
+      - name: Start PixelOS Android 17 build
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "Starting Evolution X build"
+          echo "Starting PixelOS Android 17 build"
           echo "========================================"
 
           echo "Crave Project : $PROJECTID"
           echo "Crave Path    : $PROJECTFOLDER"
-          echo "Branch        : ${{ github.event.inputs.EVOLUTION_BRANCH }}"
+          echo "Branch        : ${{ github.event.inputs.PIXELOS_BRANCH }}"
           echo "Device        : ${{ github.event.inputs.DEVICE_NAME }}"
           echo "Product       : ${{ github.event.inputs.PRODUCT_NAME }}"
           echo "Lunch         : $LUNCH"
@@ -530,8 +416,6 @@ jobs:
 
           cd "$PROJECTFOLDER"
 
-          # Remove local project overrides exactly like the
-          # upstream self-hosted Crave workflow.
           if [ -f "$HOME/crave.conf" ]; then
 
             jq '.projects = []' \
@@ -560,14 +444,6 @@ jobs:
           echo "Launching Crave"
           echo "========================================"
 
-          # IMPORTANT:
-          # Do NOT pass --projectID here.
-          #
-          # The current directory is the registered Crave clone.
-          # Crave identifies the project from that clone.
-          #
-          # Evolution X repo init happens INSIDE the remote Crave job.
-
           crave ${{ secrets.CRAVE_FLAGS }} run \
             --no-patch \
             $PAID \
@@ -575,16 +451,16 @@ jobs:
             -- \
             "set -e && \
             echo '========================================' && \
-            echo 'Preparing Evolution X bka' && \
+            echo 'Preparing PixelOS Android 17' && \
             echo '========================================' && \
             rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }} && \
             ${BUILD_DIFFERENT_ROM} && \
             echo '========================================' && \
-            echo 'Installing flame local manifest' && \
+            echo 'Installing Flame local manifest' && \
             echo '========================================' && \
             ${LOCAL_MANIFEST} && \
             echo '========================================' && \
-            echo 'Synchronizing Evolution X source' && \
+            echo 'Synchronizing PixelOS source' && \
             echo '========================================' && \
             if [ -f /usr/bin/resync ]; then \
               /usr/bin/resync; \
@@ -598,9 +474,9 @@ jobs:
             export BUILD_HOSTNAME=crave && \
             source build/envsetup.sh && \
             echo '========================================' && \
-            echo 'Evolution X environment loaded' && \
+            echo 'PixelOS environment loaded' && \
             echo '========================================' && \
-            echo 'Branch: ${{ github.event.inputs.EVOLUTION_BRANCH }}' && \
+            echo 'Branch: ${{ github.event.inputs.PIXELOS_BRANCH }}' && \
             echo 'Device: ${{ github.event.inputs.DEVICE_NAME }}' && \
             echo 'Product: ${{ github.event.inputs.PRODUCT_NAME }}' && \
             echo 'Lunch: ${LUNCH}' && \
@@ -612,7 +488,7 @@ jobs:
             echo 'Running make installclean...' && \
             make installclean && \
             echo '========================================' && \
-            echo 'Starting Evolution X build...' && \
+            echo 'Starting PixelOS Android 17 build...' && \
             ${{ github.event.inputs.BUILD_COMMAND }}"
 
 
@@ -620,7 +496,7 @@ jobs:
         if: always()
         run: |
           echo "========================================"
-          echo "Evolution X artifacts"
+          echo "PixelOS Android 17 artifacts"
           echo "========================================"
 
           OUTPUT_DIR="$PROJECTFOLDER/out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
@@ -646,6 +522,7 @@ jobs:
           else
 
             echo "Output directory not found."
+            echo "This is expected if the build output exists only on the remote Crave node."
 
           fi
 
@@ -664,7 +541,7 @@ jobs:
           curl -s -X POST \
             "https://api.telegram.org/bot$botToken/sendMessage" \
             -d chat_id="$chatId" \
-            -d text="Evolution X build $STATUS%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.EVOLUTION_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -d text="PixelOS Android 17 build $STATUS%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.PIXELOS_BRANCH }}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
         env:
           chatId: ${{ secrets.TELEGRAM_TO }}
