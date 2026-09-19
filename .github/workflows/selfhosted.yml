@@ -53,7 +53,7 @@ on:
           - "user"
 
       CLEAN_BUILD:
-        description: "Clean Crave build?"
+        description: "Clean build?"
         required: true
         default: "no"
         type: choice
@@ -62,7 +62,7 @@ on:
           - "no"
 
       REMOVALS:
-        description: "Extra folders to remove before sync"
+        description: "Folders to remove before build"
         required: false
         default: ""
 
@@ -101,7 +101,7 @@ jobs:
           PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
 
-          BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs --depth 1"
+          BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs --depth=1 --force-sync"
 
           LUNCH="lunch ${PRODUCT}-bp4a-${BUILD_TYPE}"
 
@@ -152,7 +152,6 @@ jobs:
 
           if [[ "$DCDEVSPACE" != *1* ]]; then
             echo "ERROR: This workflow must run on the self-hosted Crave runner."
-            echo "Make sure the GitHub self-hosted runner is online inside Crave."
             exit 1
           fi
 
@@ -161,13 +160,10 @@ jobs:
             exit 1
           fi
 
-          echo "Crave:"
-          crave --version || true
-
-          echo "========================================"
+          echo "Crave environment OK."
 
 
-      - name: Verify Project 99 clone
+      - name: Verify Crave clone
         shell: bash
         run: |
           set -e
@@ -179,9 +175,8 @@ jobs:
           crave clone list
 
           echo ""
-          echo "Expected:"
-          echo "Project ID : ${PROJECTID}"
-          echo "Path       : ${PROJECTFOLDER}"
+          echo "Expected Project : ${PROJECTID}"
+          echo "Expected Path    : ${PROJECTFOLDER}"
           echo ""
 
           if ! crave clone list --json \
@@ -189,12 +184,11 @@ jobs:
               '.clones[] | select(."Cloned At" == $path)' \
               >/dev/null; then
 
-            echo "ERROR: Expected Crave clone was not found."
+            echo "ERROR: Crave clone was not found."
             echo ""
-            echo "Create the clone once with:"
-            echo "crave clone create --projectID ${PROJECTID} ${PROJECTFOLDER}"
-            echo ""
-            echo "Do NOT repo init or repo sync manually."
+            echo "Expected:"
+            echo "Project 99"
+            echo "/crave-devspaces/Lineage23"
             exit 1
           fi
 
@@ -303,8 +297,9 @@ jobs:
 
 
           echo "========================================"
-          echo "Launching Crave run"
+          echo "Launching Crave"
           echo "========================================"
+
 
           crave ${{ secrets.CRAVE_FLAGS }} run \
             --no-patch \
@@ -345,6 +340,7 @@ jobs:
             echo '========================================' && \
             echo 'Lunch successful!' && \
             echo '========================================' && \
+            echo 'Running make installclean...' && \
             make installclean && \
             echo '========================================' && \
             echo 'Starting PixelOS Android 17 build...' && \
@@ -363,9 +359,7 @@ jobs:
           echo "Device  : ${{ github.event.inputs.DEVICE_NAME }}"
           echo "Branch  : ${{ github.event.inputs.PIXELOS_BRANCH }}"
           echo ""
-          echo "Build artifacts remain on the Crave build node."
-          echo "Use crave pull from the registered project directory"
-          echo "after a successful build."
+          echo "Artifacts remain on the remote Crave build workspace."
 
 
       - name: Telegram Build Finished
