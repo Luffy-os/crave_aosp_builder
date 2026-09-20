@@ -1,4 +1,4 @@
-name: PixelOS Android 17 Builder (self-hosted)
+name: PixelOS Android 17 Builder
 
 on:
   workflow_dispatch:
@@ -53,7 +53,7 @@ on:
           - "user"
 
       CLEAN_BUILD:
-        description: "Clean build?"
+        description: "Clean Crave build"
         required: true
         default: "no"
         type: choice
@@ -61,31 +61,34 @@ on:
           - "yes"
           - "no"
 
-      REMOVALS:
-        description: "Folders to remove before build"
-        required: false
-        default: ""
-
 
 jobs:
 
   build:
 
-    name: Build PixelOS Android 17
+    name: PixelOS Android 17 - flame
 
     runs-on: self-hosted
 
     timeout-minutes: 1440
 
     concurrency:
-      group: ${{ github.repository_owner }}-pixelos-flame
+      group: pixelos-flame-build
       cancel-in-progress: false
 
     steps:
 
-      - name: Checkout workflow repository
+      # ==========================================
+      # CHECKOUT BUILDER REPOSITORY
+      # ==========================================
+
+      - name: Checkout builder repository
         uses: actions/checkout@v4
 
+
+      # ==========================================
+      # SET VARIABLES
+      # ==========================================
 
       - name: Set build variables
         shell: bash
@@ -101,21 +104,11 @@ jobs:
           PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
 
-          BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs --depth=1 --force-sync"
+          BUILD_DIFFERENT_ROM="repo init -u https://github.com/PixelOS-AOSP/android_manifest -b ${BRANCH} --git-lfs --depth=1"
 
           LUNCH="lunch ${PRODUCT}-bp4a-${BUILD_TYPE}"
 
-          if [[ "$MANIFEST" =~ \.xml/?$ ]]; then
-
-            LOCAL_MANIFEST_URL="${MANIFEST%/}"
-
-            LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -f .repo/local_manifests/* && curl -L -o .repo/local_manifests/local_manifest.xml ${LOCAL_MANIFEST_URL}"
-
-          else
-
-            LOCAL_MANIFEST="git clone --depth=1 -b ${MANIFEST_BRANCH} ${MANIFEST} .repo/local_manifests"
-
-          fi
+          LOCAL_MANIFEST="git clone --depth=1 -b ${MANIFEST_BRANCH} ${MANIFEST} .repo/local_manifests"
 
           echo "PROJECTID=${PROJECTID}" >> "$GITHUB_ENV"
           echo "PROJECTFOLDER=${PROJECTFOLDER}" >> "$GITHUB_ENV"
@@ -124,34 +117,32 @@ jobs:
           echo "LOCAL_MANIFEST=${LOCAL_MANIFEST}" >> "$GITHUB_ENV"
 
           echo "========================================"
-          echo "PixelOS Android 17 Configuration"
+          echo "PixelOS Android 17"
           echo "========================================"
-          echo "Crave Project   : ${PROJECTID}"
-          echo "Crave Path      : ${PROJECTFOLDER}"
-          echo "PixelOS Branch  : ${BRANCH}"
-          echo "Device          : ${{ github.event.inputs.DEVICE_NAME }}"
-          echo "Product         : ${PRODUCT}"
-          echo "Build Type      : ${BUILD_TYPE}"
-          echo "Lunch           : ${LUNCH}"
-          echo "Build Command   : ${{ github.event.inputs.BUILD_COMMAND }}"
-          echo "Manifest        : ${MANIFEST}"
-          echo "Manifest Branch : ${MANIFEST_BRANCH}"
+          echo "Crave Project : ${PROJECTID}"
+          echo "Crave Path    : ${PROJECTFOLDER}"
+          echo "Branch        : ${BRANCH}"
+          echo "Device        : ${{ github.event.inputs.DEVICE_NAME }}"
+          echo "Product       : ${PRODUCT}"
+          echo "Build Type    : ${BUILD_TYPE}"
+          echo "Lunch         : ${LUNCH}"
+          echo "Build Command : ${{ github.event.inputs.BUILD_COMMAND }}"
           echo "========================================"
 
 
-      - name: Check self-hosted Crave environment
+      # ==========================================
+      # CHECK CRAVE ENVIRONMENT
+      # ==========================================
+
+      - name: Check Crave environment
         shell: bash
         run: |
           set -e
 
-          echo "========================================"
-          echo "Checking Crave environment"
-          echo "========================================"
-
           echo "DCDEVSPACE=${DCDEVSPACE}"
 
           if [[ "$DCDEVSPACE" != *1* ]]; then
-            echo "ERROR: This workflow must run on the self-hosted Crave runner."
+            echo "ERROR: This workflow must run on the Crave self-hosted runner."
             exit 1
           fi
 
@@ -163,13 +154,17 @@ jobs:
           echo "Crave environment OK."
 
 
-      - name: Verify Crave clone
+      # ==========================================
+      # CHECK REGISTERED CLONE
+      # ==========================================
+
+      - name: Check Crave clone
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "Checking Crave clone"
+          echo "Crave clone list"
           echo "========================================"
 
           crave clone list
@@ -177,110 +172,56 @@ jobs:
           echo ""
           echo "Expected Project : ${PROJECTID}"
           echo "Expected Path    : ${PROJECTFOLDER}"
-          echo ""
 
-          if ! crave clone list --json \
-            | jq -e --arg path "$PROJECTFOLDER" \
-              '.clones[] | select(."Cloned At" == $path)' \
-              >/dev/null; then
-
-            echo "ERROR: Crave clone was not found."
-            echo ""
-            echo "Expected:"
-            echo "Project 99"
-            echo "/crave-devspaces/Lineage23"
+          if [[ ! -d "$PROJECTFOLDER" ]]; then
+            echo "ERROR: Crave clone directory does not exist."
             exit 1
           fi
 
-          echo "Crave clone found."
+          echo ""
+          echo "Crave clone directory exists."
 
 
-      - name: Configure git
+      # ==========================================
+      # CONFIGURE GIT
+      # ==========================================
+
+      - name: Configure Git
         shell: bash
         run: |
           git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git config --global user.email \
+            "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
 
-      - name: Configure Crave
-        shell: bash
-        run: |
-          set -e
+      # ==========================================
+      # TELEGRAM START
+      # ==========================================
 
-          if [[ ! -f "$HOME/crave.conf" ]]; then
-            echo "ERROR: $HOME/crave.conf not found."
-            exit 1
-          fi
-
-          cd "$PROJECTFOLDER"
-
-          mkdir -p .repo/manifests
-
-          if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
-
-            curl -L \
-              -o .repo/manifests/crave.yaml \
-              https://raw.githubusercontent.com/sounddrill31/crave_aosp_builder/main/configs/crave/crave.yaml.aosp
-
-            echo "Using default Crave configuration."
-
-          else
-
-            printf '%s\n' "${{ secrets.CUSTOM_YAML }}" \
-              > .repo/manifests/crave.yaml
-
-            echo "Using custom Crave configuration."
-
-          fi
-
-          echo "Crave configuration ready."
-
-
-      - name: Telegram Build Started
+      - name: Telegram build started
         continue-on-error: true
+        shell: bash
         run: |
           curl -s -X POST \
-            "https://api.telegram.org/bot$botToken/sendMessage" \
-            -d chat_id="$chatId" \
-            -d text="PixelOS Android 17 build started%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.PIXELOS_BRANCH }}%0AProject: $PROJECTID%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-        env:
-          chatId: ${{ secrets.TELEGRAM_TO }}
-          botToken: ${{ secrets.TELEGRAM_TOKEN }}
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_TO }}" \
+            -d text="PixelOS Android 17 build started%0A%0ADevice: flame%0ABranch: seventeen%0ACrave Project: ${PROJECTID}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
 
-      - name: Start PixelOS Android 17 build
+      # ==========================================
+      # BUILD
+      # ==========================================
+
+      - name: Build PixelOS Android 17
         shell: bash
         run: |
           set -e
 
-          echo "========================================"
-          echo "Starting PixelOS Android 17 build"
-          echo "========================================"
-
-          echo "Crave Project : $PROJECTID"
-          echo "Crave Path    : $PROJECTFOLDER"
-          echo "PixelOS       : ${{ github.event.inputs.PIXELOS_BRANCH }}"
-          echo "Device        : ${{ github.event.inputs.DEVICE_NAME }}"
-          echo "Product       : ${{ github.event.inputs.PRODUCT_NAME }}"
-          echo "Lunch         : $LUNCH"
-          echo "Build Command : ${{ github.event.inputs.BUILD_COMMAND }}"
-          echo "========================================"
-
           cd "$PROJECTFOLDER"
 
-          if [[ -f "$HOME/crave.conf" ]]; then
-
-            jq '.projects = []' \
-              "$HOME/crave.conf" \
-              > "$HOME/crave.conf.tmp"
-
-            mv "$HOME/crave.conf.tmp" "$HOME/crave.conf"
-
-            echo "Cleared local Crave project overrides."
-
-          fi
-
+          echo "========================================"
+          echo "Starting Crave build"
+          echo "========================================"
 
           if [[ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]]; then
             CLEAN="--clean"
@@ -288,22 +229,8 @@ jobs:
             CLEAN=""
           fi
 
-
-          if [[ -n "${{ secrets.PAID }}" ]]; then
-            PAID="--platform aosp-silver"
-          else
-            PAID=""
-          fi
-
-
-          echo "========================================"
-          echo "Launching Crave"
-          echo "========================================"
-
-
-          crave ${{ secrets.CRAVE_FLAGS }} run \
+          crave run \
             --no-patch \
-            $PAID \
             $CLEAN \
             -- \
             "set -e && \
@@ -313,58 +240,58 @@ jobs:
             rm -rf .repo/local_manifests && \
             ${BUILD_DIFFERENT_ROM} && \
             echo '========================================' && \
-            echo 'Installing Flame local manifest' && \
+            echo 'Installing local device manifest' && \
             echo '========================================' && \
             ${LOCAL_MANIFEST} && \
             echo '========================================' && \
-            echo 'Synchronizing PixelOS source' && \
+            echo 'Running Crave source resync' && \
             echo '========================================' && \
-            if [ -f /opt/crave/resync.sh ]; then \
-              /opt/crave/resync.sh; \
-            elif [ -f /usr/bin/resync ]; then \
-              /usr/bin/resync; \
-            else \
-              echo 'ERROR: Crave resync script not found.'; \
-              exit 1; \
-            fi && \
+            /opt/crave/resync.sh && \
             echo '========================================' && \
-            echo 'Source synchronization complete' && \
+            echo 'Source sync completed' && \
             echo '========================================' && \
-            export BUILD_USERNAME='${{ github.actor }}' && \
-            export BUILD_HOSTNAME=crave && \
             source build/envsetup.sh && \
             echo '========================================' && \
-            echo 'PixelOS environment loaded' && \
+            echo 'Running lunch' && \
             echo '========================================' && \
             ${LUNCH} && \
             echo '========================================' && \
-            echo 'Lunch successful!' && \
+            echo 'Lunch successful' && \
             echo '========================================' && \
-            echo 'Running make installclean...' && \
             make installclean && \
             echo '========================================' && \
-            echo 'Starting PixelOS Android 17 build...' && \
+            echo 'Starting PixelOS build' && \
+            echo '========================================' && \
             ${{ github.event.inputs.BUILD_COMMAND }}"
 
 
-      - name: Show build information
+      # ==========================================
+      # BUILD RESULT
+      # ==========================================
+
+      - name: Build result
         if: always()
         shell: bash
         run: |
           echo "========================================"
           echo "PixelOS Android 17 build finished"
           echo "========================================"
-          echo "Project : $PROJECTID"
-          echo "Path    : $PROJECTFOLDER"
-          echo "Device  : ${{ github.event.inputs.DEVICE_NAME }}"
-          echo "Branch  : ${{ github.event.inputs.PIXELOS_BRANCH }}"
-          echo ""
-          echo "Artifacts remain on the remote Crave build workspace."
+          echo "Status      : ${{ job.status }}"
+          echo "Device      : flame"
+          echo "Branch      : seventeen"
+          echo "Crave       : Project ${PROJECTID}"
+          echo "Crave Path  : ${PROJECTFOLDER}"
+          echo "========================================"
 
 
-      - name: Telegram Build Finished
+      # ==========================================
+      # TELEGRAM RESULT
+      # ==========================================
+
+      - name: Telegram build result
         if: always()
         continue-on-error: true
+        shell: bash
         run: |
 
           if [[ "${{ job.status }}" == "success" ]]; then
@@ -374,10 +301,6 @@ jobs:
           fi
 
           curl -s -X POST \
-            "https://api.telegram.org/bot$botToken/sendMessage" \
-            -d chat_id="$chatId" \
-            -d text="PixelOS Android 17 build $STATUS%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0ABranch: ${{ github.event.inputs.PIXELOS_BRANCH }}%0AProject: $PROJECTID%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-        env:
-          chatId: ${{ secrets.TELEGRAM_TO }}
-          botToken: ${{ secrets.TELEGRAM_TOKEN }}
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_TO }}" \
+            -d text="PixelOS Android 17 build ${STATUS}%0A%0ADevice: flame%0ABranch: seventeen%0ACrave Project: ${PROJECTID}%0ARun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
