@@ -92,6 +92,19 @@ jobs:
             "set -e
 
             echo '========================================'
+            echo 'RESETTING REPO MANIFEST METADATA'
+            echo '========================================'
+
+            if [ -d .repo/manifests/.git ]; then
+              git -C .repo/manifests reset --hard HEAD
+              git -C .repo/manifests clean -fd
+            fi
+
+            if [ -d .repo/manifests.git ]; then
+              git -C .repo/manifests.git gc --prune=now || true
+            fi
+
+            echo '========================================'
             echo 'INITIALIZING PIXEL OS'
             echo '========================================'
 
@@ -100,6 +113,14 @@ jobs:
               -b seventeen \
               --git-lfs \
               --depth=1
+
+            echo '========================================'
+            echo 'VERIFYING PIXELOS MANIFEST'
+            echo '========================================'
+
+            if grep -n 'hardware/qcom/wlan' .repo/manifests/default.xml; then
+              echo 'PixelOS manifest contains hardware/qcom/wlan.'
+            fi
 
             echo '========================================'
             echo 'INSTALLING FLAME MANIFEST'
