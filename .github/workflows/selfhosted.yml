@@ -1,157 +1,187 @@
-name: PixelOS 17 - Redmi 14C 5G
+name: PixelOS Android 17 - Flame
 
 on:
   workflow_dispatch:
 
+concurrency:
+  group: pixelos-flame
+  cancel-in-progress: false
+
 jobs:
   build:
-
+    name: Build PixelOS Android 17
     runs-on: self-hosted
-
     timeout-minutes: 1440
+
+    env:
+      PROJECT_ID: 99
+      PROJECTFOLDER: /crave-devspaces/Lineage23
+      DEVICE_NAME: flame
+      PRODUCT_NAME: lineage_flame
 
     steps:
 
       - name: Checkout builder
         uses: actions/checkout@v4
 
-      - name: Set variables
-        shell: bash
-        run: |
-          set -e
-
-          echo "PROJECT_ID=99" >> "$GITHUB_ENV"
-          echo "PROJECTFOLDER=/crave-devspaces/Lineage23" >> "$GITHUB_ENV"
-
-          echo "DEVICE_NAME=flame" >> "$GITHUB_ENV"
-          echo "PRODUCT_NAME=lineage_flame" >> "$GITHUB_ENV"
-
-          echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/android_manifest -b seventeen --git-lfs --depth=1" >> "$GITHUB_ENV"
-
-          echo "LOCAL_MANIFEST=git clone --depth=1 -b main https://github.com/Luffy-os/local_manifests_flame .repo/local_manifests" >> "$GITHUB_ENV"
-
-          echo "LUNCH=lunch lineage_flame-bp4a-userdebug" >> "$GITHUB_ENV"
-
-          echo "BUILD_COMMAND=m bacon" >> "$GITHUB_ENV"
-
       - name: Check Crave
-        shell: bash
         run: |
           set -e
 
-          echo "========================================"
-          echo "CRAVE"
-          echo "========================================"
+          echo "======================================"
+          echo "          CRAVE STATUS"
+          echo "======================================"
 
-          command -v crave
-
+          crave projects
+          echo ""
           crave clone list
 
+          echo ""
           echo "Project ID: $PROJECT_ID"
           echo "Project folder: $PROJECTFOLDER"
 
-          if ! crave clone list --json | jq -r '.[]."Cloned At"' 2>/dev/null | grep -Fxq "$PROJECTFOLDER"; then
-            echo "Clone not found."
-            exit 1
-          fi
-
       - name: Configure Crave
-        shell: bash
         run: |
           set -e
 
-          cd "$PROJECTFOLDER"
+          echo "======================================"
+          echo "       CONFIGURING CRAVE"
+          echo "======================================"
 
-          mkdir -p .repo/manifests
+          echo "Using existing Project 99 / LOS 23.2"
+          echo "Workspace: $PROJECTFOLDER"
 
-          curl -L \
-            -o .repo/manifests/crave.yaml \
-            https://raw.githubusercontent.com/sounddrill31/crave_aosp_builder/main/configs/crave/crave.yaml.aosp
+          echo ""
+          echo "Crave configuration:"
+          crave projects
 
-          echo "Crave YAML configured."
-
-      - name: Build PixelOS
-        shell: bash
-        timeout-minutes: 1440
+      - name: Build PixelOS Android 17
         run: |
           set -e
 
-          cd "$PROJECTFOLDER"
-
-          echo "========================================"
-          echo "PIXEL OS ANDROID 17"
-          echo "========================================"
-          echo "Project : $PROJECT_ID"
-          echo "Folder  : $PROJECTFOLDER"
-          echo "Device  : $DEVICE_NAME"
-          echo "Product : $PRODUCT_NAME"
-          echo "Branch  : seventeen"
-          echo "========================================"
+          echo "======================================"
+          echo "      STARTING CRAVE BUILD"
+          echo "======================================"
 
           crave run \
+            --projectID "$PROJECT_ID" \
             --no-patch \
-            -- \
-            "set -e
+            -- bash -c '
+              set -e
 
-            echo '========================================'
-            echo 'INITIALIZING PIXEL OS'
-            echo '========================================'
+              echo "======================================"
+              echo "     PIXELOS ANDROID 17 - FLAME"
+              echo "======================================"
 
-            $REPO_INIT
+              cd /crave-devspaces/Lineage23
 
-            echo '========================================'
-            echo 'INSTALLING DEVICE MANIFEST'
-            echo '========================================'
+              echo ""
+              echo "======================================"
+              echo "1. PixelOS manifest"
+              echo "======================================"
 
-            rm -rf .repo/local_manifests
+              repo init \
+                -u https://github.com/PixelOS-AOSP/android_manifest \
+                -b seventeen \
+                --git-lfs \
+                --depth=1
 
-            $LOCAL_MANIFEST
+              echo ""
+              echo "======================================"
+              echo "2. Installing EXACT AsTechpro20 manifest"
+              echo "======================================"
 
-            echo '========================================'
-            echo 'VERIFYING MANIFEST'
-            echo '========================================'
+              rm -rf .repo/local_manifests
 
-            echo 'Device manifest:'
-            find .repo/local_manifests -type f -maxdepth 2 -print
+              git clone \
+                --depth=1 \
+                -b latest \
+                https://github.com/AsTechpro20/local_manifests_flame.git \
+                .repo/local_manifests
 
-            echo '========================================'
-            echo 'CRAVE RESYNC'
-            echo '========================================'
+              echo ""
+              echo "Manifest repository:"
+              git -C .repo/local_manifests remote -v
 
-            /opt/crave/resync.sh
+              echo ""
+              echo "Manifest branch:"
+              git -C .repo/local_manifests branch --show-current
 
-            echo '========================================'
-            echo 'SOURCE SYNC COMPLETE'
-            echo '========================================'
+              echo ""
+              echo "Manifest files:"
+              ls -la .repo/local_manifests
 
-            source build/envsetup.sh
+              echo ""
+              echo "======================================"
+              echo "3. Verify local_manifests.xml"
+              echo "======================================"
 
-            echo '========================================'
-            echo 'LUNCH'
-            echo '========================================'
+              cat .repo/local_manifests/local_manifests.xml
 
-            $LUNCH
+              echo ""
+              echo "======================================"
+              echo "4. Check for duplicate WLAN entry"
+              echo "======================================"
 
-            echo '========================================'
-            echo 'INSTALLCLEAN'
-            echo '========================================'
+              if grep -Rqs "path=\"hardware/qcom/wlan\"" .repo/local_manifests; then
+                echo "ERROR: hardware/qcom/wlan was found in local manifest."
+                echo "This manifest should NOT contain that project."
+                exit 1
+              fi
 
-            make installclean
+              echo "No hardware/qcom/wlan project in local manifest."
 
-            echo '========================================'
-            echo 'BUILDING PIXEL OS'
-            echo '========================================'
+              echo ""
+              echo "======================================"
+              echo "5. Resync source"
+              echo "======================================"
 
-            $BUILD_COMMAND"
+              /opt/crave/resync.sh
 
-      - name: Build result
+              echo ""
+              echo "======================================"
+              echo "6. Build environment"
+              echo "======================================"
+
+              . build/envsetup.sh
+
+              echo ""
+              echo "======================================"
+              echo "7. Lunch"
+              echo "======================================"
+
+              lunch lineage_flame-bp4a-userdebug
+
+              echo ""
+              echo "======================================"
+              echo "8. Install clean"
+              echo "======================================"
+
+              make installclean
+
+              echo ""
+              echo "======================================"
+              echo "9. BUILDING PIXEL OS"
+              echo "======================================"
+
+              m bacon
+
+              echo ""
+              echo "======================================"
+              echo "       PIXEL OS BUILD COMPLETE"
+              echo "======================================"
+            '
+
+      - name: Build Result
         if: always()
-        shell: bash
         run: |
-          echo "========================================"
-          echo "BUILD RESULT"
-          echo "========================================"
-          echo "Status: ${{ job.status }}"
-          echo "Device: flame"
+          echo "======================================"
+          echo "             BUILD RESULT"
+          echo "======================================"
           echo "ROM: PixelOS Android 17"
-          echo "========================================"
+          echo "Device: flame"
+          echo "Project: 99"
+          echo "Workspace: /crave-devspaces/Lineage23"
+          echo "Manifest: AsTechpro20/local_manifests_flame"
+          echo "Manifest branch: latest"
+          echo "======================================"
