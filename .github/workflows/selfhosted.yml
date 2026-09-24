@@ -15,75 +15,77 @@ jobs:
       - name: Checkout builder
         uses: actions/checkout@v4
 
-      - name: Set environment
+      - name: Set variables
         shell: bash
         run: |
           set -e
 
           echo "PROJECT_ID=99" >> "$GITHUB_ENV"
-          echo "PROJECT_DIR=/crave-devspaces/Lineage23" >> "$GITHUB_ENV"
+          echo "PROJECTFOLDER=/crave-devspaces/Lineage23" >> "$GITHUB_ENV"
 
-          echo "PIXEL_BRANCH=seventeen" >> "$GITHUB_ENV"
+          echo "DEVICE_NAME=flame" >> "$GITHUB_ENV"
+          echo "PRODUCT_NAME=lineage_flame" >> "$GITHUB_ENV"
 
-          echo "DEVICE=flame" >> "$GITHUB_ENV"
-          echo "PRODUCT=lineage_flame" >> "$GITHUB_ENV"
+          echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/android_manifest -b seventeen --git-lfs --depth=1" >> "$GITHUB_ENV"
 
-          echo "MANIFEST_REPO=https://github.com/Luffy-os/local_manifests_flame" >> "$GITHUB_ENV"
-          echo "MANIFEST_BRANCH=main" >> "$GITHUB_ENV"
+          echo "LOCAL_MANIFEST=git clone --depth=1 -b main https://github.com/Luffy-os/local_manifests_flame .repo/local_manifests" >> "$GITHUB_ENV"
 
-      - name: Verify Crave
+          echo "LUNCH=lunch lineage_flame-bp4a-userdebug" >> "$GITHUB_ENV"
+
+          echo "BUILD_COMMAND=m bacon" >> "$GITHUB_ENV"
+
+      - name: Check Crave
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "CRAVE ENVIRONMENT"
+          echo "CRAVE"
           echo "========================================"
 
           command -v crave
+
           crave clone list
 
-          if [ ! -d "$PROJECT_DIR" ]; then
-            echo "ERROR: $PROJECT_DIR does not exist."
+          echo "Project ID: $PROJECT_ID"
+          echo "Project folder: $PROJECTFOLDER"
+
+          if ! crave clone list --json | jq -r '.[]."Cloned At"' 2>/dev/null | grep -Fxq "$PROJECTFOLDER"; then
+            echo "Clone not found."
             exit 1
           fi
 
-          echo "Project: $PROJECT_ID"
-          echo "Path: $PROJECT_DIR"
-
-      - name: Configure Crave YAML
+      - name: Configure Crave
         shell: bash
         run: |
           set -e
 
-          cd "$PROJECT_DIR"
+          cd "$PROJECTFOLDER"
 
           mkdir -p .repo/manifests
-
-          rm -f .repo/manifests/crave.yaml
-          rm -f .repo/manifests/crave.yaml.*
 
           curl -L \
             -o .repo/manifests/crave.yaml \
             https://raw.githubusercontent.com/sounddrill31/crave_aosp_builder/main/configs/crave/crave.yaml.aosp
 
-          echo "Crave configuration installed."
+          echo "Crave YAML configured."
 
-      - name: Start PixelOS build
+      - name: Build PixelOS
         shell: bash
+        timeout-minutes: 1440
         run: |
           set -e
 
-          cd "$PROJECT_DIR"
+          cd "$PROJECTFOLDER"
 
           echo "========================================"
           echo "PIXEL OS ANDROID 17"
           echo "========================================"
           echo "Project : $PROJECT_ID"
-          echo "Path    : $PROJECT_DIR"
-          echo "Branch  : $PIXEL_BRANCH"
-          echo "Device  : $DEVICE"
-          echo "Product : $PRODUCT"
+          echo "Folder  : $PROJECTFOLDER"
+          echo "Device  : $DEVICE_NAME"
+          echo "Product : $PRODUCT_NAME"
+          echo "Branch  : seventeen"
           echo "========================================"
 
           crave run \
@@ -92,64 +94,25 @@ jobs:
             "set -e
 
             echo '========================================'
-            echo 'RESETTING REPO MANIFEST METADATA'
-            echo '========================================'
-
-            if [ -d .repo/manifests/.git ]; then
-              git -C .repo/manifests reset --hard HEAD
-              git -C .repo/manifests clean -fd
-            fi
-
-            if [ -d .repo/manifests.git ]; then
-              git -C .repo/manifests.git gc --prune=now || true
-            fi
-
-            echo '========================================'
             echo 'INITIALIZING PIXEL OS'
             echo '========================================'
 
-            repo init \
-              -u https://github.com/PixelOS-AOSP/android_manifest \
-              -b seventeen \
-              --git-lfs \
-              --depth=1
+            $REPO_INIT
 
             echo '========================================'
-            echo 'VERIFYING PIXELOS MANIFEST'
-            echo '========================================'
-
-            if grep -n 'hardware/qcom/wlan' .repo/manifests/default.xml; then
-              echo 'PixelOS manifest contains hardware/qcom/wlan.'
-            fi
-
-            echo '========================================'
-            echo 'INSTALLING FLAME MANIFEST'
+            echo 'INSTALLING DEVICE MANIFEST'
             echo '========================================'
 
             rm -rf .repo/local_manifests
 
-            git clone \
-              --depth=1 \
-              -b main \
-              https://github.com/Luffy-os/local_manifests_flame \
-              .repo/local_manifests
+            $LOCAL_MANIFEST
 
             echo '========================================'
-            echo 'CLEANING KNOWN STALE GCC REPOSITORIES'
+            echo 'VERIFYING MANIFEST'
             echo '========================================'
 
-            for repo_path in \
-              prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
-              prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
-              prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9
-            do
-              if [ -d \"\$repo_path\" ]; then
-                echo \"Cleaning \$repo_path\"
-
-                git -C \"\$repo_path\" reset --hard HEAD || true
-                git -C \"\$repo_path\" clean -fd || true
-              fi
-            done
+            echo 'Device manifest:'
+            find .repo/local_manifests -type f -maxdepth 2 -print
 
             echo '========================================'
             echo 'CRAVE RESYNC'
@@ -167,7 +130,7 @@ jobs:
             echo 'LUNCH'
             echo '========================================'
 
-            lunch lineage_flame-bp4a-userdebug
+            $LUNCH
 
             echo '========================================'
             echo 'INSTALLCLEAN'
@@ -179,9 +142,9 @@ jobs:
             echo 'BUILDING PIXEL OS'
             echo '========================================'
 
-            m bacon"
+            $BUILD_COMMAND"
 
-      - name: Build finished
+      - name: Build result
         if: always()
         shell: bash
         run: |
