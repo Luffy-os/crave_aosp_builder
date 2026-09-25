@@ -30,12 +30,9 @@ jobs:
           echo "             CRAVE STATUS"
           echo "========================================"
 
-          echo ""
-          echo "Available Crave projects/clones:"
           crave clone list
 
           echo ""
-          echo "Target:"
           echo "Project ID : $PROJECT_ID"
           echo "Workspace  : $PROJECTFOLDER"
 
@@ -44,7 +41,7 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "       STARTING PIXELOS BUILD"
+          echo "       STARTING CRAVE BUILD"
           echo "========================================"
 
           cd "$PROJECTFOLDER"
@@ -53,11 +50,11 @@ jobs:
             set -e
 
             echo '========================================'
-            echo '     PIXELOS ANDROID 17 - FLAME'
+            echo '     PIXEL OS ANDROID 17 - FLAME'
             echo '========================================'
 
             echo ''
-            echo '1. Initializing PixelOS Android 17'
+            echo '1. Initialize PixelOS Android 17'
 
             repo init \
               -u https://github.com/PixelOS-AOSP/android_manifest \
@@ -66,9 +63,12 @@ jobs:
               --depth=1
 
             echo ''
-            echo '2. Installing AsTechpro20 local manifest'
+            echo '2. Remove previous LOCAL manifests only'
 
             rm -rf .repo/local_manifests
+
+            echo ''
+            echo '3. Clone EXACT AsTechpro20 manifest'
 
             git clone \
               --depth=1 \
@@ -77,67 +77,81 @@ jobs:
               .repo/local_manifests
 
             echo ''
-            echo '3. Verifying manifest repository'
+            echo '========================================'
+            echo '     VERIFYING ASTECHPRO20 MANIFEST'
+            echo '========================================'
 
             git -C .repo/local_manifests remote -v
 
             echo ''
-            echo 'Manifest branch:'
+            echo 'Branch:'
             git -C .repo/local_manifests branch --show-current
 
             echo ''
-            echo 'Manifest contents:'
+            echo 'Manifest files:'
             ls -la .repo/local_manifests
 
             echo ''
-            echo '========================================'
-            echo '       LOCAL MANIFEST'
-            echo '========================================'
-
+            echo 'local_manifests.xml:'
             cat .repo/local_manifests/local_manifests.xml
 
             echo ''
             echo '========================================'
-            echo '       CHECKING WLAN DUPLICATE'
+            echo '     CHECKING DUPLICATE WLAN'
             echo '========================================'
 
-            if grep -Rqs 'path=\"hardware/qcom/wlan\"' .repo/local_manifests; then
-              echo 'ERROR: hardware/qcom/wlan exists in AsTechpro20 local manifest.'
+            WLAN_COUNT=$(
+              grep -Rho 'path="hardware/qcom/wlan"' \
+              .repo/local_manifests 2>/dev/null | wc -l
+            )
+
+            echo "Local manifest WLAN entries: $WLAN_COUNT"
+
+            if [ "$WLAN_COUNT" -ne 0 ]; then
+              echo "ERROR: AsTechpro20 manifest contains hardware/qcom/wlan."
               exit 1
             fi
 
-            echo 'OK: no hardware/qcom/wlan project in local manifest.'
+            echo "OK: no hardware/qcom/wlan in local manifest."
 
             echo ''
-            echo '4. Resyncing source'
+            echo '========================================'
+            echo '     RESYNCING CRAVE WORKSPACE'
+            echo '========================================'
 
             /opt/crave/resync.sh
 
             echo ''
-            echo '5. Loading Android build environment'
+            echo '========================================'
+            echo '     BUILD ENVIRONMENT'
+            echo '========================================'
 
             . build/envsetup.sh
 
             echo ''
-            echo '6. Lunch'
+            echo '========================================'
+            echo '     LUNCH'
+            echo '========================================'
 
             lunch lineage_flame-bp4a-userdebug
 
             echo ''
-            echo '7. Install clean'
+            echo '========================================'
+            echo '     INSTALL CLEAN'
+            echo '========================================'
 
             make installclean
 
             echo ''
             echo '========================================'
-            echo '       STARTING PIXEL OS BUILD'
+            echo '     BUILDING PIXEL OS'
             echo '========================================'
 
             m bacon
 
             echo ''
             echo '========================================'
-            echo '       BUILD COMPLETED'
+            echo '     PIXEL OS BUILD COMPLETE'
             echo '========================================'
           "
 
@@ -147,10 +161,10 @@ jobs:
           echo "========================================"
           echo "             BUILD RESULT"
           echo "========================================"
-          echo "ROM      : PixelOS Android 17"
-          echo "Device   : flame"
-          echo "Project  : 99"
-          echo "Workspace: /crave-devspaces/Lineage23"
-          echo "Manifest : AsTechpro20/local_manifests_flame"
-          echo "Branch   : latest"
+          echo "ROM       : PixelOS Android 17"
+          echo "Device    : flame"
+          echo "Project   : 99"
+          echo "Workspace : /crave-devspaces/Lineage23"
+          echo "Manifest  : AsTechpro20/local_manifests_flame"
+          echo "Branch    : latest"
           echo "========================================"
