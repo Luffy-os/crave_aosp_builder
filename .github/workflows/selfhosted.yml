@@ -36,11 +36,11 @@ on:
       LOCAL_MANIFEST:
         description: "Personal local manifest [repository or raw]:"
         required: true
-        default: 'https://github.com/YOUR_GITHUB_USER/local_manifests_flame'
+        default: 'https://raw.githubusercontent.com/Luffy-os/local_manifests_flame/main/flame.xml'
       LOCAL_MANIFEST_BRANCH:
         description: "Personal local manifest's branch:"
         required: false
-        default: 'lineage-24.0'
+        default: 'main'
       DEVICE_NAME:
         description: "Device's codename:"
         required: true
@@ -192,18 +192,31 @@ jobs:
         ;;
         esac
 
-        if [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
+        # PixelOS 17 / flame: never allow a stale or invalid PRODUCT_NAME
+        # such as custom_flame to reach breakfast/lunch.
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "PixelOS 17" ]]; then
+          if [[ "${{ github.event.inputs.DEVICE_NAME }}" != "flame" ]]; then
+            echo "ERROR: PixelOS 17 build is locked to DEVICE_NAME=flame"
+            exit 1
+          fi
+          if [[ "${{ github.event.inputs.PRODUCT_NAME }}" != "flame" ]]; then
+            echo "ERROR: PixelOS 17 build is locked to PRODUCT_NAME=flame"
+            echo "Received PRODUCT_NAME=${{ github.event.inputs.PRODUCT_NAME }}"
+            exit 1
+          fi
+          LUNCH="breakfast flame ${{ github.event.inputs.BUILD_TYPE }}"
+        elif [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
         elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
-            LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
+          LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
         else
-            LUNCH="breakfast ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
+          LUNCH="breakfast ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
         fi
 
           if [[ "${{ github.event.inputs.LOCAL_MANIFEST }}" =~ \.xml(/)?$ ]]; then
             local_manifest_url="${{ github.event.inputs.LOCAL_MANIFEST }}"
             export local_manifest_url="${local_manifest_url%/}"  # remove trailing slash if it exists
-            LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* || true && curl -o .repo/local_manifests/local_manifest.xml ${local_manifest_url}"
+            LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* && curl -fL --retry 3 -o .repo/local_manifests/flame.xml ${local_manifest_url}"
           else
             export LOCAL_MANIFEST="git clone ${{ github.event.inputs.LOCAL_MANIFEST }} --depth 1 -b ${{github.event.inputs.LOCAL_MANIFEST_BRANCH}} .repo/local_manifests"
           fi
@@ -306,7 +319,7 @@ jobs:
 
         bash -c "$LOCAL_MANIFEST"
 
-        timeout 1m repo sync --force-sync || { exit_code=$?; [ $exit_code -eq 124 ] || (echo "Error: Process failed with exit code $exit_code"; exit $exit_code); }
+        timeout 10m repo sync --force-sync -j8 || { exit_code=$?; [ $exit_code -eq 124 ] && echo "Manifest test timed out after 10 minutes" || true; exit $exit_code; }
         du -csh . # Output Size when done
         rm -rf .repo
       timeout-minutes: 10
@@ -516,6 +529,14 @@ jobs:
           /opt/crave/resync.sh
         fi && \
 
+        # Verify the device/vendor/kernel trees were actually pulled by the local manifest
+        test -d device/xiaomi/flame || { echo "ERROR: device/xiaomi/flame is missing"; find device/xiaomi -maxdepth 2 -type d 2>/dev/null | head -50; exit 1; } ; \
+        test -d device/xiaomi/flame-kernel || { echo "ERROR: device/xiaomi/flame-kernel is missing"; exit 1; } ; \
+        test -d vendor/xiaomi/flame || { echo "ERROR: vendor/xiaomi/flame is missing"; exit 1; } ; \
+        echo "=== Flame device tree ===" ; \
+        find device/xiaomi/flame -maxdepth 2 -type f | head -80 ; \
+        echo "=== Flame product files ===" ; \
+        grep -R "PRODUCT_NAME\|PRODUCT_DEVICE" device/xiaomi/flame --include='*.mk' --include='*.bp' | head -80 || true ; \
         # Set up build environment
         export BUILD_USERNAME=${{ github.actor }} ; \
         export BUILD_HOSTNAME=crave ; \
@@ -525,6 +546,7 @@ jobs:
         echo "Run ID: ${{ github.run_id }}"; \
 
         # Build the ROM
+        echo "Using PixelOS target: $LUNCH" ; \
         $LUNCH && \
         make installclean && \
         ${{ github.event.inputs.BUILD_COMMAND }}"
