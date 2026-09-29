@@ -304,25 +304,71 @@ jobs:
         git config --global user.name "${{ github.actor }}"
         git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      # Test Your Personal 'Local Manifests' against The ROM
+      # Lightweight manifest validation only.
+      # IMPORTANT: Do NOT run a full Android "repo sync" on the GitHub-hosted
+      # test runner. The Android prebuilts alone can exhaust its disk space.
     - name: Test Local Manifests
       if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
       run: |
+        set -e
+
         rm -rf tester
-        mkdir tester
-        cd tester 
-        if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]; then
-          $REPO_INIT
+        mkdir -p tester
+        cd tester
+
+        MANIFEST_INPUT="${{ github.event.inputs.LOCAL_MANIFEST }}"
+        MANIFEST_BRANCH="${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
+
+        echo "=== Manifest input ==="
+        echo "$MANIFEST_INPUT"
+        echo "=== Manifest branch ==="
+        echo "$MANIFEST_BRANCH"
+
+        if [[ "$MANIFEST_INPUT" =~ \.xml(/)?$ ]]; then
+          MANIFEST_URL="${MANIFEST_INPUT%/}"
+          curl -fL --retry 3 --retry-all-errors             -o flame.xml             "$MANIFEST_URL"
         else
-          ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}
-        fi 
+          git clone --depth=1 -b "$MANIFEST_BRANCH"             "$MANIFEST_INPUT" manifest_repo
+          find manifest_repo -maxdepth 2 -type f -name '*.xml' -print
+          MANIFEST_FILE="$(find manifest_repo -maxdepth 2 -type f -name '*.xml' | head -1)"
+          test -n "$MANIFEST_FILE"
+          cp "$MANIFEST_FILE" flame.xml
+        fi
 
-        bash -c "$LOCAL_MANIFEST"
+        echo "=== Manifest contents ==="
+        cat flame.xml
 
-        timeout 10m repo sync --force-sync -j8 || { exit_code=$?; [ $exit_code -eq 124 ] && echo "Manifest test timed out after 10 minutes" || true; exit $exit_code; }
-        du -csh . # Output Size when done
-        rm -rf .repo
-      timeout-minutes: 10
+        echo "=== XML syntax check ==="
+        python3 - <<'PY'
+        import xml.etree.ElementTree as ET
+        ET.parse("flame.xml")
+        print("XML syntax: OK")
+        PY
+
+        echo "=== Required flame repositories ==="
+        grep -q 'AsTechpro20/device_xiaomi_flame' flame.xml
+        grep -q 'AsTechpro20/device_xiaomi_flame-kernel' flame.xml
+        grep -q 'AsTechpro20/vendor_xiaomi_flame' flame.xml
+
+        echo "Required flame repositories: OK"
+
+        echo "=== Required revisions ==="
+        grep -q 'revision="lineage-24.0"' flame.xml
+        grep -q 'revision="lineage-23.1"' flame.xml
+        grep -q 'revision="lineage-23.2"' flame.xml
+
+        echo "Required revisions: OK"
+
+        echo "=== Checking remote branches without syncing Android ==="
+        git ls-remote --exit-code           https://github.com/AsTechpro20/device_xiaomi_flame.git           refs/heads/lineage-24.0 >/dev/null
+
+        git ls-remote --exit-code           https://github.com/AsTechpro20/device_xiaomi_flame-kernel.git           refs/heads/lineage-23.1 >/dev/null
+
+        git ls-remote --exit-code           https://github.com/AsTechpro20/vendor_xiaomi_flame.git           refs/heads/lineage-23.2 >/dev/null
+
+        echo "All required repositories/branches are reachable."
+        echo "=== Manifest test PASSED ==="
+      timeout-minutes: 5
     outputs:
       PROJECTFOLDER: ${{ needs.prepare.outputs.PROJECTFOLDER }}
       PROJECTID: ${{ needs.prepare.outputs.PROJECTID }}
