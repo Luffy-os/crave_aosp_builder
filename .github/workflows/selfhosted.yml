@@ -558,68 +558,31 @@ jobs:
         echo "Check foss.crave.io Dashboard to see builds"
         echo "Running build's log will show up here!"
 
-
+        # Keep the Crave command simple: no nested shell if/fi blocks.
+        # This avoids the quoting/syntax failure from the previous build.
         crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }} && \
-        # Clone local_manifests repository
         $BUILD_DIFFERENT_ROM ; \
         $LOCAL_MANIFEST && \
-
-        # The Crave workspace can contain cached Android repos from an earlier
-        # manifest. Clean tracked/untracked changes before resync so repo does
-        # not fail on old GCC/Clang projects with "uncommitted changes".
-        echo "=== Cleaning stale repo worktrees ===" ; \
-        repo forall -c 'git reset --hard HEAD >/dev/null 2>&1 || true; git clean -fdx >/dev/null 2>&1 || true' || true ; \
-        rm -rf prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
-               prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9 ; \
-
-        # Sync the repositories. Use the Crave resync helper, then explicitly
-        # force-sync/prune if the cached workspace still has manifest changes.
-        if [ -f /usr/bin/resync ]; then
-          /usr/bin/resync
-        else
-          /opt/crave/resync.sh
-        fi ; \
-        SYNC_RC=$? ; \
-        if [ "$SYNC_RC" -ne 0 ]; then
-          echo "Crave resync returned $SYNC_RC; retrying with force-sync/prune..." ; \
-          repo sync --force-sync --prune --no-clone-bundle || exit $? ; \
-        fi ; \
-
-        # Verify the device/vendor/kernel trees were actually pulled.
-        echo "=== Verifying flame source trees ===" ; \
-        for d in device/xiaomi/flame device/xiaomi/flame-kernel vendor/xiaomi/flame; do \
-          if [ ! -d "$d" ]; then \
-            echo "ERROR: required tree missing: $d" ; \
-            echo "=== Matching Xiaomi trees ===" ; \
-            find device/xiaomi vendor/xiaomi -maxdepth 2 -type d 2>/dev/null | grep -E 'flame|xiaomi' | head -100 || true ; \
-            exit 1 ; \
-          fi ; \
-        done ; \
-        echo "device/xiaomi/flame: OK" ; \
-        echo "device/xiaomi/flame-kernel: OK" ; \
-        echo "vendor/xiaomi/flame: OK" ; \
-        echo "=== Flame device tree ===" ; \
-        find device/xiaomi/flame -maxdepth 2 -type f | head -80 ; \
-        echo "=== Flame product files ===" ; \
-        grep -R "PRODUCT_NAME\|PRODUCT_DEVICE" device/xiaomi/flame --include='*.mk' --include='*.bp' | head -80 || true ; \
-        # PixelOS 17 target sanity check. PixelOS resolves `breakfast flame`
-        # to its internal custom_flame-<release>-<buildtype> product.
-        if [ "${{ github.event.inputs.BASE_PROJECT }}" = "PixelOS 17" ]; then \
-          test "${{ github.event.inputs.DEVICE_NAME }}" = "flame" || { echo "ERROR: DEVICE_NAME must be flame"; exit 1; } ; \
-          test "${{ github.event.inputs.PRODUCT_NAME }}" = "flame" || { echo "ERROR: PRODUCT_NAME must be flame"; exit 1; } ; \
-          echo "PixelOS 17 target locked to flame; breakfast will resolve the PixelOS custom_flame target." ; \
-        fi ; \
-
-        # Set up build environment
-        export BUILD_USERNAME=${{ github.actor }} ; \
-        export BUILD_HOSTNAME=crave ; \
+        echo '=== Cleaning stale repo worktrees ===' && \
+        repo forall -c \"git reset --hard HEAD >/dev/null 2>&1 || true; git clean -fdx >/dev/null 2>&1 || true\" && \
+        rm -rf prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9 && \
+        (command -v /usr/bin/resync >/dev/null 2>&1 && /usr/bin/resync || /opt/crave/resync.sh || repo sync --force-sync --prune --no-clone-bundle) && \
+        echo '=== Verifying flame source trees ===' && \
+        test -d device/xiaomi/flame || { echo 'ERROR: missing device/xiaomi/flame'; exit 1; } && \
+        test -d device/xiaomi/flame-kernel || { echo 'ERROR: missing device/xiaomi/flame-kernel'; exit 1; } && \
+        test -d vendor/xiaomi/flame || { echo 'ERROR: missing vendor/xiaomi/flame'; exit 1; } && \
+        echo 'device/xiaomi/flame: OK' && \
+        echo 'device/xiaomi/flame-kernel: OK' && \
+        echo 'vendor/xiaomi/flame: OK' && \
+        echo '=== Flame product files ===' && \
+        grep -R 'PRODUCT_NAME\\|PRODUCT_DEVICE' device/xiaomi/flame --include='*.mk' --include='*.bp' | head -80 || true && \
+        test '${{ github.event.inputs.DEVICE_NAME }}' = 'flame' || { echo 'ERROR: DEVICE_NAME must be flame'; exit 1; } && \
+        export BUILD_USERNAME='${{ github.actor }}' && \
+        export BUILD_HOSTNAME='crave' && \
         source build/envsetup.sh && \
-
-        echo "Repository: ${{ github.repository }}"; \
-        echo "Run ID: ${{ github.run_id }}"; \
-
-        # Build the ROM
-        echo "Using PixelOS target: $LUNCH" ; \
+        echo 'Repository: ${{ github.repository }}' && \
+        echo 'Run ID: ${{ github.run_id }}' && \
+        echo \"Using PixelOS target: $LUNCH\" && \
         $LUNCH && \
         make installclean && \
         ${{ github.event.inputs.BUILD_COMMAND }}"
