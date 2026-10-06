@@ -346,25 +346,21 @@ jobs:
         PY
 
         echo "=== Required flame repositories ==="
-        grep -q 'AsTechpro20/device_xiaomi_flame' flame.xml
-        grep -q 'AsTechpro20/device_xiaomi_flame-kernel' flame.xml
-        grep -q 'AsTechpro20/vendor_xiaomi_flame' flame.xml
+        grep -q 'flame4blame/android_device_xiaomi_flame' flame.xml
+        grep -q 'flame4blame/android_device_xiaomi_flame-kernel' flame.xml
+        grep -q 'flame4blame/proprietary_vendor_xiaomi_flame' flame.xml
 
         echo "Required flame repositories: OK"
 
         echo "=== Required revisions ==="
-        grep -q 'revision="lineage-24.0"' flame.xml
-        grep -q 'revision="lineage-23.1"' flame.xml
-        grep -q 'revision="lineage-23.2"' flame.xml
+        test "$(grep -o 'revision="[^"]*"' flame.xml | sort -u | grep -c 'revision="lineage-24.0"')" -ge 1
 
         echo "Required revisions: OK"
 
         echo "=== Checking remote branches without syncing Android ==="
-        git ls-remote --exit-code           https://github.com/AsTechpro20/device_xiaomi_flame.git           refs/heads/lineage-24.0 >/dev/null
-
-        git ls-remote --exit-code           https://github.com/AsTechpro20/device_xiaomi_flame-kernel.git           refs/heads/lineage-23.1 >/dev/null
-
-        git ls-remote --exit-code           https://github.com/AsTechpro20/vendor_xiaomi_flame.git           refs/heads/lineage-23.2 >/dev/null
+        git ls-remote --exit-code https://github.com/flame4blame/android_device_xiaomi_flame.git refs/heads/lineage-24.0 >/dev/null
+        git ls-remote --exit-code https://github.com/flame4blame/android_device_xiaomi_flame-kernel.git refs/heads/lineage-24.0 >/dev/null
+        git ls-remote --exit-code https://github.com/flame4blame/proprietary_vendor_xiaomi_flame.git refs/heads/lineage-24.0 >/dev/null
 
         echo "All required repositories/branches are reachable."
         echo "=== Manifest test PASSED ==="
@@ -606,12 +602,12 @@ jobs:
         find device/xiaomi/flame -maxdepth 2 -type f | head -80 ; \
         echo "=== Flame product files ===" ; \
         grep -R "PRODUCT_NAME\|PRODUCT_DEVICE" device/xiaomi/flame --include='*.mk' --include='*.bp' | head -80 || true ; \
-        # PixelOS 17 target sanity check: never allow custom_flame or another
-        # product name to reach the Android build system.
+        # PixelOS 17 target sanity check. PixelOS resolves `breakfast flame`
+        # to its internal custom_flame-<release>-<buildtype> product.
         if [ "${{ github.event.inputs.BASE_PROJECT }}" = "PixelOS 17" ]; then \
           test "${{ github.event.inputs.DEVICE_NAME }}" = "flame" || { echo "ERROR: DEVICE_NAME must be flame"; exit 1; } ; \
           test "${{ github.event.inputs.PRODUCT_NAME }}" = "flame" || { echo "ERROR: PRODUCT_NAME must be flame"; exit 1; } ; \
-          echo "PixelOS 17 target locked to flame/userdebug" ; \
+          echo "PixelOS 17 target locked to flame; breakfast will resolve the PixelOS custom_flame target." ; \
         fi ; \
 
         # Set up build environment
