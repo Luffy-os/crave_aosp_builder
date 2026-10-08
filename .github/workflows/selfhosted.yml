@@ -1,222 +1,187 @@
-#
-# Copyright (C) 2024-2025 Antonino Scordino
-# Copyright (C) 2024-2025 Souhrud Reddy
-#
-# SPDX-License-Identifier: Apache-2.0
-#
+name: PixelOS 17 • Redmi 14C 5G (flame)
 
-name: Crave Builder(self-hosted)
 on:
   workflow_dispatch:
-    # Various inputs to simplify usage of workflow.
     inputs:
-      BASE_PROJECT:
-        description: 'Choose a base project:'
+      CLEAN_BUILD:
+        description: "Clean Crave build"
         required: true
-        default: 'PixelOS 17'
+        default: "no"
         type: choice
         options:
-          - 'LineageOS 20.0'
-          - 'LineageOS 22.1'
-          - 'LineageOS 23.2'
-          - 'DerpFest 14.0'
-          - 'CipherOS 14'
-          - 'PixelOS 17'
-          - 'PixelOS 15'
-          - 'LineageOS 18.1'
-          - 'LineageOS 16.0'
-          - 'CyanogenMOD 12.1'
-      BUILD_DIFFERENT_ROM:
-        description: "Command to initialize a different 'repo' project:"
-        required: false
-        default: "echo 'Build Starting!'"
-      REMOVALS:
-        description: "Folders to be removed before syncing:"
-        required: false
-      LOCAL_MANIFEST:
-        description: "Personal local manifest [repository or raw]:"
-        required: true
-        default: 'https://raw.githubusercontent.com/Luffy-os/local_manifests_flame/main/flame.xml'
-      LOCAL_MANIFEST_BRANCH:
-        description: "Personal local manifest's branch:"
-        required: false
-        default: 'main'
-      DEVICE_NAME:
-        description: "Device's codename:"
-        required: true
-        default: "flame"
-      PRODUCT_NAME:
-        description: "Product/device to build:"
-        required: true
-        default: "flame"
-      BUILD_COMMAND:
-        description: 'Command to be used for compiling:'
-        required: true
-        default: 'm pixelos'
-      BUILD_TYPE:
-        description: 'Type of build:'
-        required: true
-        default: 'userdebug'
-        type: choice
-        options: 
-        - 'eng'
-        - 'userdebug'
-        - 'user' 
-      CLEAN_BUILD:
-        description: 'Build with a clean workspace?'
-        required: true
-        default: 'yes'
-        type: choice
-        options: 
-        - 'yes'
-        - 'no'
+          - "no"
+          - "yes"
 
 jobs:
   Start-Runner:
+    name: Start Crave self-hosted runner
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runner helper
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Configure Crave
+        run: |
+          if [[ "${DCDEVSPACE}" == *1* ]]; then
+            echo "Already inside a Crave devspace."
+          else
+            mkdir -p "${HOME}/bin"
+            curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+            mv "${PWD}/crave" "${HOME}/bin/crave"
+            sudo ln -sf "${HOME}/bin/crave" /usr/bin/crave
+            envsubst < "${PWD}/crave.conf.sample" > "${PWD}/crave.conf"
+            rm -f "${PWD}/crave.conf.sample"
+          fi
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+
+      - name: Start runner inside Crave devspace
+        run: |
+          crave ${{ secrets.CRAVE_FLAGS }} devspace -- '
+            set -e
+            if [ ! -f actions-runner/run.sh ]; then
+              echo "ERROR: actions-runner/run.sh was not found."
+              exit 1
+            fi
+
+            if tmux has-session -t ghactions 2>/dev/null; then
+              echo "GitHub Actions runner is already running."
+            else
+              tmux new-session -d -s ghactions
+              tmux send-keys -t ghactions "./actions-runner/run.sh" Enter
+              echo "GitHub Actions runner started."
+            fi
+          '
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+
+  build:
+    name: Build PixelOS 17 for flame
+    needs: Start-Runner
+    runs-on: self-hosted
+    timeout-minutes: 1440
+    concurrency:
+      group: pixelos17-flame
+      cancel-in-progress: false
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout workflow repository
+        uses: actions/checkout@v4
 
-    - name: Set up environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y tmux
+      - name: Verify Crave credentials
+        run: |
+          test -n "${{ secrets.CRAVE_USERNAME }}" || { echo "CRAVE_USERNAME missing"; exit 1; }
+          test -n "${{ secrets.CRAVE_TOKEN }}" || { echo "CRAVE_TOKEN missing"; exit 1; }
 
-      # Download and configure 'crave'.
-    - name: Configure the 'crave' environment
-      run: |
-        echo "DCDEVSPACE status: ${DCDEVSPACE}"
-        if [[ $DCDEVSPACE == *1* ]]; then
-        echo 'No need to set up crave, we are already running in devspace!'
-        else
-          mkdir ${HOME}/bin/
-          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-          mv ${PWD}/crave ${HOME}/bin/
-          sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
-          envsubst < ${PWD}/crave.conf.sample >> ${PWD}/crave.conf
-          rm -rf ${PWD}/crave.conf.sample          
-        fi
-      env:
-        CRAVE_USERNAME: ${{  secrets.CRAVE_USERNAME  }}
-        CRAVE_TOKEN: ${{  secrets.CRAVE_TOKEN  }}
+      - name: Verify PixelOS Crave clone
+        run: |
+          test -d /crave-devspaces/PixelOS
+          cd /crave-devspaces/PixelOS
+          test -d .repo
+          test -f build/envsetup.sh
+          echo "PixelOS clone is present."
+          echo "Project directory: $(pwd)"
 
-    - name: Run crave devspace
-      run: |
-        set -e
-        PROJECTFOLDER="/crave-devspaces/PixelOS"
-        PROJECTID="82"
-        echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_ENV"
-        echo "PROJECTID=$PROJECTID" >> "$GITHUB_ENV"
+      - name: Queue PixelOS build through Crave
+        working-directory: /crave-devspaces/PixelOS
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+          CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
+          CLEAN_BUILD: ${{ github.event.inputs.CLEAN_BUILD }}
+        run: |
+          set -e
 
-        echo "=== Preparing Crave PixelOS project clone ==="
-        if crave clone list --json 2>/dev/null | jq -e --arg p "$PROJECTFOLDER" '.clones[] | select(."Cloned At" == $p)' >/dev/null; then
-          echo "Existing PixelOS clone found: $PROJECTFOLDER"
-        else
-          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER"
-        fi
+          if [ "$CLEAN_BUILD" = "yes" ]; then
+            CLEAN="--clean"
+          else
+            CLEAN=""
+          fi
 
-        cd "$PROJECTFOLDER"
+          echo "PixelOS Project ID: 82"
+          echo "Device: flame"
+          echo "Target: custom_flame-cp2a-userdebug"
+          echo "Build command: m pixelos"
+          echo "No explicit -j flag will be used."
 
-        if [[ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]]; then
-          CLEAN_FLAG="--clean"
-        else
-          CLEAN_FLAG=""
-        fi
+          crave $CRAVE_FLAGS run \
+            --projectID 82 \
+            --no-patch \
+            $CLEAN \
+            -- '
+              set -e
 
-        crave run $CLEAN_FLAG --no-patch -- "rm -rf .repo/local_manifests && mkdir -p .repo/local_manifests && printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogIDxwcm9qZWN0IG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIgLz4KICA8cHJvamVjdCBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUta2VybmVsIiBwYXRoPSJkZXZpY2UveGlhb21pL2ZsYW1lLWtlcm5lbCIgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIgLz4KICA8cHJvamVjdCBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIiBwYXRoPSJ2ZW5kb3IveGlhb21pL2ZsYW1lIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiAvPgo8L21hbmlmZXN0Pgo=' | base64 -d > .repo/local_manifests/flame.xml && echo '=== Local manifest ===' && cat .repo/local_manifests/flame.xml && echo '=== Validating manifest XML ===' && repo manifest -r >/dev/null && echo 'Manifest XML: OK' && echo '=== Cleaning stale repo worktrees ===' && repo forall -c \"git reset --hard HEAD >/dev/null 2>&1 || true; git clean -fdx >/dev/null 2>&1 || true\" && rm -rf prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9 && repo sync --force-sync --prune --no-clone-bundle && echo '=== Verifying flame source trees ===' && test -d device/xiaomi/flame || { echo 'ERROR: missing device/xiaomi/flame'; exit 1; } && test -d device/xiaomi/flame-kernel || { echo 'ERROR: missing device/xiaomi/flame-kernel'; exit 1; } && test -d vendor/xiaomi/flame || { echo 'ERROR: missing vendor/xiaomi/flame'; exit 1; } && echo 'device/xiaomi/flame: OK' && echo 'device/xiaomi/flame-kernel: OK' && echo 'vendor/xiaomi/flame: OK' && source build/envsetup.sh && lunch '${{ github.event.inputs.DEVICE_NAME }}-${{ github.event.inputs.BUILD_TYPE }}' && ${{ github.event.inputs.BUILD_COMMAND }}"
-      timeout-minutes: 1440
+              echo "=== PixelOS 17 / flame build ==="
 
-      # Send Build 'status' notification (Success)
-    - name: Telegram Notification
-      if:  ${{ success() }}
-      continue-on-error: true
-      run: |
-        send_telegram_message() {
-          local message="$1"
-          curl -s -X POST \
-          https://api.telegram.org/bot$botToken/sendMessage \
-          -d chat_id=$chatId \
-          -d text="$message" \
-          -d parse_mode="Markdown"
-        }
+              # The PixelOS Project 82 clone is already initialized.
+              # Add the unofficial flame device sources through a local manifest.
+              mkdir -p .repo/local_manifests
 
-        send_telegram_message "Crave Project: ${{ github.event.inputs.BASE_PROJECT }}%0ACrave ProjectID: $PROJECTID %0ABuild for ${{ github.event.inputs.DEVICE_NAME }} has Succeeded! %0ACheck Progress at: %0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}%0ADownload at: https://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/releases/tag/${{ github.run_id }}"
+              cat > .repo/local_manifests/flame.xml <<'"'"'EOF'"'"'
+              <?xml version="1.0" encoding="UTF-8"?>
+              <manifest>
+                <remote
+                  name="github"
+                  fetch="https://github.com/" />
 
-      env:
-        chatId: ${{ secrets.TELEGRAM_TO }}
-        botToken: ${{ secrets.TELEGRAM_TOKEN }}
-        jobStatus: ${{ job.status }}
-        skipSuccess: false
+                <project
+                  path="device/xiaomi/flame"
+                  name="flame4blame/android_device_xiaomi_flame"
+                  revision="lineage-24.0"
+                  remote="github" />
 
-      # Send Build 'status' notification (Fail/Cancel)
-    - name: Telegram Notification
-      if:  ${{ cancelled() || failure() }}
-      continue-on-error: true
-      run: |
-        send_telegram_message() {
-          local message="$1"
-          curl -s -X POST \
-          https://api.telegram.org/bot$botToken/sendMessage \
-          -d chat_id=$chatId \
-          -d text="$message" \
-          -d parse_mode="Markdown"
-        }
+                <project
+                  path="device/xiaomi/flame-kernel"
+                  name="flame4blame/android_device_xiaomi_flame-kernel"
+                  revision="lineage-24.0"
+                  remote="github" />
 
-        if [ "$jobStatus" = "cancelled" ]; then
-          jobMessage="has been Cancelled!"
-        elif [ "$jobStatus" = "failure" ]; then
-          jobMessage="has Failed!"
-        fi
+                <project
+                  path="vendor/xiaomi/flame"
+                  name="flame4blame/proprietary_vendor_xiaomi_flame"
+                  revision="lineage-24.0"
+                  remote="github" />
+              </manifest>
+              EOF
 
-        send_telegram_message "Crave Project: ${{ github.event.inputs.BASE_PROJECT }}%0ACrave ProjectID: $PROJECTID %0ABuild for ${{ github.event.inputs.DEVICE_NAME }} $jobMessage %0ACheck Progress at: %0Ahttps://github.com/$(echo "${{ github.repository }}" | sed 's@_@\\_@g')/actions/runs/${{ github.run_id }}"
-        # Todo: error.log link
-      env:
-        chatId: ${{ secrets.TELEGRAM_TO }}
-        botToken: ${{ secrets.TELEGRAM_TOKEN }}
-        jobStatus: ${{ job.status }}
+              echo "=== Local manifest ==="
+              cat .repo/local_manifests/flame.xml
 
-      # Only reach this wheter the user killed the workflow.
-    - name: Execute if the job is cancelled
-      if: ${{ cancelled() }}
-      run: |
-        cd $PROJECTFOLDER
-        crave stop --all
+              echo "=== Syncing only through Crave build environment ==="
+              if [ -f /usr/bin/resync ]; then
+                /usr/bin/resync
+              else
+                /opt/crave/resync.sh
+              fi
 
-      # Upload '.zip's and '.img's directly from 'crave' ssh.
-    - name: Upload build artifact(s)
-      continue-on-error: true
-      run: |
-        cd $PROJECTFOLDER
-        echo "${{ secrets.GITHUB_TOKEN }}" > token.txt
-        crave push token.txt -d $(crave ssh -- pwd | grep -v Select | sed -s 's/\r//g')/
-        crave ssh -- "export GH_UPLOAD_LIMIT="${{ secrets.GH_UPLOAD_LIMIT }}"; bash /opt/crave/github-actions/upload.sh '${{ github.run_id }}' '${{ github.event.inputs.DEVICE_NAME }}'  '${{ github.repository }}' '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}' '${{ secrets.EXTRA_FILES }}'"
+              echo "=== Preflight: device sources ==="
+              test -d device/xiaomi/flame
+              test -d device/xiaomi/flame-kernel
+              test -d vendor/xiaomi/flame
 
-      # Pull Errors and Display them
-    - name: Display error.log
-      if: ${{ failure() }}
-      id: errorlog
-      run: |
-        cd $PROJECTFOLDER
-        crave ssh -- sleep 1
-        crave pull out/error.log
-        echo "Displaying out/error.log"
-        cat out/error.log
+              echo "Device tree: OK"
+              echo "Kernel tree: OK"
+              echo "Vendor tree: OK"
 
-      # Upload to Telegram
-    - name: Upload Using telegram-upload
-      run: |
-        cd $PROJECTFOLDER
-        crave ssh -- "export TG_UPLOAD_LIMIT="${{ secrets.TG_UPLOAD_LIMIT }}"; bash /opt/crave/telegram/upload.sh '${{ github.event.inputs.DEVICE_NAME }}' '${{ secrets.EXTRA_FILES }}'"
-      continue-on-error: true
+              echo "=== Preflight: PixelOS build environment ==="
+              source build/envsetup.sh
 
-      # Remove 'crave' clone
-    - name: Destroy Crave Clone
-      if: ${{ always() }}
-      run: |
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
-        else          
-          echo "Skipping removal"
-        fi
+              echo "=== Checking PixelOS target ==="
+              lunch custom_flame-cp2a-userdebug
+
+              echo "=== Starting PixelOS build ==="
+              m pixelos
+
+              echo "=== Build finished ==="
+            '
+
+      - name: Show Crave build status
+        if: always()
+        working-directory: /crave-devspaces/PixelOS
+        run: |
+          echo "Workflow completed with status: ${{ job.status }}"
