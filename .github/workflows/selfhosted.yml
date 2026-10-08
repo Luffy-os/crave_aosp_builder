@@ -1,187 +1,153 @@
-name: PixelOS 17 • Redmi 14C 5G (flame)
+name: PixelOS 17 - flame (Crave)
 
 on:
   workflow_dispatch:
-    inputs:
-      CLEAN_BUILD:
-        description: "Clean Crave build"
-        required: true
-        default: "no"
-        type: choice
-        options:
-          - "no"
-          - "yes"
 
 jobs:
-  Start-Runner:
-    name: Start Crave self-hosted runner
+  start-runner:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install runner helper
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install runner dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux jq gettext-base
 
       - name: Configure Crave
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
         run: |
-          if [[ "${DCDEVSPACE}" == *1* ]]; then
-            echo "Already inside a Crave devspace."
+          set -e
+          if [[ "$DCDEVSPACE" == *1* ]]; then
+            echo "Already inside Crave devspace"
           else
-            mkdir -p "${HOME}/bin"
+            mkdir -p "$HOME/bin"
             curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-            mv "${PWD}/crave" "${HOME}/bin/crave"
-            sudo ln -sf "${HOME}/bin/crave" /usr/bin/crave
-            envsubst < "${PWD}/crave.conf.sample" > "${PWD}/crave.conf"
-            rm -f "${PWD}/crave.conf.sample"
+            test -f ./crave
+            mv ./crave "$HOME/bin/crave"
+            sudo ln -sf "$HOME/bin/crave" /usr/bin/crave
+            test -f ./crave.conf.sample
+            envsubst < ./crave.conf.sample > ./crave.conf
           fi
-        env:
-          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+          crave version
 
-      - name: Start runner inside Crave devspace
+      - name: Start self-hosted runner in Crave
+        env:
+          CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
         run: |
-          crave ${{ secrets.CRAVE_FLAGS }} devspace -- '
+          set -e
+          crave $CRAVE_FLAGS devspace -- '
             set -e
-            if [ ! -f actions-runner/run.sh ]; then
-              echo "ERROR: actions-runner/run.sh was not found."
-              exit 1
-            fi
-
+            test -f actions-runner/run.sh
             if tmux has-session -t ghactions 2>/dev/null; then
-              echo "GitHub Actions runner is already running."
-            else
-              tmux new-session -d -s ghactions
-              tmux send-keys -t ghactions "./actions-runner/run.sh" Enter
-              echo "GitHub Actions runner started."
+              tmux kill-session -t ghactions
             fi
+            tmux new-session -d -s ghactions "./actions-runner/run.sh"
+            sleep 5
+            test -f actions-runner/.runner || true
+            pgrep -af Runner.Listener || true
           '
-        env:
-          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
   build:
-    name: Build PixelOS 17 for flame
-    needs: Start-Runner
+    needs: start-runner
     runs-on: self-hosted
     timeout-minutes: 1440
     concurrency:
-      group: pixelos17-flame
+      group: pixelos-flame
       cancel-in-progress: false
 
     steps:
-      - name: Checkout workflow repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Crave credentials
-        run: |
-          test -n "${{ secrets.CRAVE_USERNAME }}" || { echo "CRAVE_USERNAME missing"; exit 1; }
-          test -n "${{ secrets.CRAVE_TOKEN }}" || { echo "CRAVE_TOKEN missing"; exit 1; }
-
-      - name: Verify PixelOS Crave clone
-        run: |
-          test -d /crave-devspaces/PixelOS
-          cd /crave-devspaces/PixelOS
-          test -d .repo
-          test -f build/envsetup.sh
-          echo "PixelOS clone is present."
-          echo "Project directory: $(pwd)"
-
-      - name: Queue PixelOS build through Crave
-        working-directory: /crave-devspaces/PixelOS
-        env:
-          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
-          CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
-          CLEAN_BUILD: ${{ github.event.inputs.CLEAN_BUILD }}
+      - name: Verify Crave PixelOS clone
         run: |
           set -e
+          test -d /crave-devspaces/PixelOS
+          test -d /crave-devspaces/PixelOS/.repo
+          echo "PixelOS Crave clone is ready."
 
-          if [ "$CLEAN_BUILD" = "yes" ]; then
-            CLEAN="--clean"
+      - name: Run PixelOS 17 flame build
+        env:
+          CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
+        run: |
+          set -e
+          cd /crave-devspaces/PixelOS
+
+          crave $CRAVE_FLAGS run --projectID 82 --no-patch -- "
+            set -e
+
+            echo '========================================'
+            echo ' PixelOS 17 / Redmi 14C 5G / flame'
+            echo '========================================'
+
+            echo '1. Creating local manifest...'
+            mkdir -p .repo/local_manifests
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=' | base64 -d > .repo/local_manifests/flame.xml
+
+            echo '2. Validating manifest...'
+            test -s .repo/local_manifests/flame.xml
+            python3 -c 'import xml.etree.ElementTree as ET; ET.parse(".repo/local_manifests/flame.xml"); print("Manifest XML: OK")'
+
+            echo '3. Checking manifest repositories...'
+            grep -q 'flame4blame/android_device_xiaomi_flame' .repo/local_manifests/flame.xml
+            grep -q 'flame4blame/android_device_xiaomi_flame-kernel' .repo/local_manifests/flame.xml
+            grep -q 'flame4blame/proprietary_vendor_xiaomi_flame' .repo/local_manifests/flame.xml
+            echo 'Manifest repository checks: OK'
+
+            echo '4. Syncing device sources...'
+            if [ -x /usr/bin/resync ]; then
+              /usr/bin/resync
+            else
+              /opt/crave/resync.sh
+            fi
+
+            echo '5. Checking required source directories...'
+            test -d device/xiaomi/flame
+            test -d device/xiaomi/flame-kernel
+            test -d vendor/xiaomi/flame
+            echo 'Device/kernel/vendor sources: OK'
+
+            echo '6. Loading Android build environment...'
+            source build/envsetup.sh
+
+            echo '7. Checking PixelOS target...'
+            lunch custom_flame-cp2a-userdebug
+
+            echo 'PixelOS target: OK'
+            echo '8. Starting compilation...'
+            m pixelos
+
+            echo '========================================'
+            echo ' PixelOS compilation command completed'
+            echo '========================================'
+          "
+
+      - name: Verify ROM output
+        if: success()
+        run: |
+          set -e
+          cd /crave-devspaces/PixelOS
+          echo "Build completed. Searching for ROM..."
+          test -d out/target/product/flame
+          find out/target/product/flame -maxdepth 1 -type f \( -name 'PixelOS_*.zip' -o -name '*.zip' \) -print
+
+      - name: Show Crave error log
+        if: failure()
+        run: |
+          cd /crave-devspaces/PixelOS
+          echo "===== Crave error.log ====="
+          if [ -f out/error.log ]; then
+            cat out/error.log
           else
-            CLEAN=""
+            echo "out/error.log not found"
           fi
 
-          echo "PixelOS Project ID: 82"
-          echo "Device: flame"
-          echo "Target: custom_flame-cp2a-userdebug"
-          echo "Build command: m pixelos"
-          echo "No explicit -j flag will be used."
-
-          crave $CRAVE_FLAGS run \
-            --projectID 82 \
-            --no-patch \
-            $CLEAN \
-            -- '
-              set -e
-
-              echo "=== PixelOS 17 / flame build ==="
-
-              # The PixelOS Project 82 clone is already initialized.
-              # Add the unofficial flame device sources through a local manifest.
-              mkdir -p .repo/local_manifests
-
-              cat > .repo/local_manifests/flame.xml <<'"'"'EOF'"'"'
-              <?xml version="1.0" encoding="UTF-8"?>
-              <manifest>
-                <remote
-                  name="github"
-                  fetch="https://github.com/" />
-
-                <project
-                  path="device/xiaomi/flame"
-                  name="flame4blame/android_device_xiaomi_flame"
-                  revision="lineage-24.0"
-                  remote="github" />
-
-                <project
-                  path="device/xiaomi/flame-kernel"
-                  name="flame4blame/android_device_xiaomi_flame-kernel"
-                  revision="lineage-24.0"
-                  remote="github" />
-
-                <project
-                  path="vendor/xiaomi/flame"
-                  name="flame4blame/proprietary_vendor_xiaomi_flame"
-                  revision="lineage-24.0"
-                  remote="github" />
-              </manifest>
-              EOF
-
-              echo "=== Local manifest ==="
-              cat .repo/local_manifests/flame.xml
-
-              echo "=== Syncing only through Crave build environment ==="
-              if [ -f /usr/bin/resync ]; then
-                /usr/bin/resync
-              else
-                /opt/crave/resync.sh
-              fi
-
-              echo "=== Preflight: device sources ==="
-              test -d device/xiaomi/flame
-              test -d device/xiaomi/flame-kernel
-              test -d vendor/xiaomi/flame
-
-              echo "Device tree: OK"
-              echo "Kernel tree: OK"
-              echo "Vendor tree: OK"
-
-              echo "=== Preflight: PixelOS build environment ==="
-              source build/envsetup.sh
-
-              echo "=== Checking PixelOS target ==="
-              lunch custom_flame-cp2a-userdebug
-
-              echo "=== Starting PixelOS build ==="
-              m pixelos
-
-              echo "=== Build finished ==="
-            '
-
-      - name: Show Crave build status
-        if: always()
-        working-directory: /crave-devspaces/PixelOS
+      - name: Stop Crave jobs on cancellation
+        if: cancelled()
         run: |
-          echo "Workflow completed with status: ${{ job.status }}"
+          cd /crave-devspaces/PixelOS
+          crave stop --all || true
