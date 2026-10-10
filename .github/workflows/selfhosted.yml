@@ -5,149 +5,211 @@ on:
 
 jobs:
   start-runner:
+    name: Start Crave self-hosted runner
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install runner dependencies
+      - name: Install helper packages
         run: |
+          set -e
           sudo apt-get update
-          sudo apt-get install -y tmux jq gettext-base
+          sudo apt-get install -y tmux gettext-base
 
-      - name: Configure Crave
+      - name: Configure Crave CLI
         env:
           CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
         run: |
-          set -e
-          if [[ "$DCDEVSPACE" == *1* ]]; then
-            echo "Already inside Crave devspace"
-          else
-            mkdir -p "$HOME/bin"
-            curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-            test -f ./crave
-            mv ./crave "$HOME/bin/crave"
-            sudo ln -sf "$HOME/bin/crave" /usr/bin/crave
-            test -f ./crave.conf.sample
-            envsubst < ./crave.conf.sample > ./crave.conf
-          fi
+          set -euo pipefail
+          test -n "$CRAVE_USERNAME" || { echo "::error::CRAVE_USERNAME secret is missing"; exit 1; }
+          test -n "$CRAVE_TOKEN" || { echo "::error::CRAVE_TOKEN secret is missing"; exit 1; }
+
+          curl -fsSL https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+          test -f ./crave
+          test -f ./crave.conf.sample
+          mkdir -p "$HOME/bin"
+          mv ./crave "$HOME/bin/crave"
+          sudo ln -sf "$HOME/bin/crave" /usr/bin/crave
+          envsubst < ./crave.conf.sample > ./crave.conf
+          chmod 600 ./crave.conf
           crave version
 
-      - name: Start self-hosted runner in Crave
+      - name: Find and start configured runner inside Crave
         env:
           CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
         run: |
-          set -e
-          crave $CRAVE_FLAGS devspace -- '
-            set -e
-            test -f actions-runner/run.sh
-            if tmux has-session -t ghactions 2>/dev/null; then
-              tmux kill-session -t ghactions
-            fi
-            tmux new-session -d -s ghactions "./actions-runner/run.sh"
-            sleep 5
-            test -f actions-runner/.runner || true
-            pgrep -af Runner.Listener || true
-          '
+          set -euo pipefail
+
+          # Keep the remote script base64-encoded so nested shell quotes cannot
+          # corrupt it while passing through `crave devspace --`.
+          cat > /tmp/start-crave-runner.sh <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          echo "Searching Crave devspaces for actions-runner/run.sh..."
+          RUN_SH="$(find /crave-devspaces -type f -path '*/actions-runner/run.sh' -print -quit 2>/dev/null || true)"
+          if [ -z "$RUN_SH" ]; then
+            echo "ERROR: No actions-runner/run.sh found under /crave-devspaces."
+            echo "The GitHub Actions runner must already be installed and configured in Crave."
+            exit 1
+          fi
+
+          RUNNER_DIR="$(dirname "$RUN_SH")"
+          RUNNER_HOME="$(dirname "$RUNNER_DIR")"
+          cd "$RUNNER_HOME"
+          echo "Runner directory: $RUNNER_DIR"
+          if [ ! -f "$RUNNER_DIR/.runner" ] && [ ! -f "$RUNNER_DIR/.credentials" ]; then
+            echo "ERROR: Runner files exist, but this runner does not appear configured."
+            echo "Configure this runner for your GitHub repository once before running this workflow."
+            exit 1
+          fi
+
+          if tmux has-session -t ghactions 2>/dev/null; then
+            echo "Existing ghactions tmux session found; leaving it running."
+          else
+            tmux new-session -d -s ghactions "cd '$RUNNER_HOME' && ./actions-runner/run.sh"
+          fi
+
+          sleep 5
+          if tmux has-session -t ghactions 2>/dev/null; then
+            echo "Runner tmux session is alive."
+            tmux capture-pane -pt ghactions -S -30 || true
+          else
+            echo "ERROR: Runner tmux session exited."
+            exit 1
+          fi
+          REMOTE_SCRIPT
+
+          SCRIPT_B64="$(base64 -w0 /tmp/start-crave-runner.sh)"
+          if [ -n "$CRAVE_FLAGS" ]; then
+            crave $CRAVE_FLAGS devspace -- "echo $SCRIPT_B64 | base64 -d | bash"
+          else
+            crave devspace -- "echo $SCRIPT_B64 | base64 -d | bash"
+          fi
 
   build:
+    name: Build PixelOS 17 for flame
     needs: start-runner
     runs-on: self-hosted
     timeout-minutes: 1440
     concurrency:
-      group: pixelos-flame
+      group: pixelos17-flame
       cancel-in-progress: false
 
     steps:
-      - name: Checkout
+      - name: Checkout workflow repository
         uses: actions/checkout@v4
 
-      - name: Verify Crave PixelOS clone
+      - name: Check PixelOS Crave clone
         run: |
-          set -e
-          test -d /crave-devspaces/PixelOS
-          test -d /crave-devspaces/PixelOS/.repo
-          echo "PixelOS Crave clone is ready."
+          set -euo pipefail
+          test -d /crave-devspaces/PixelOS || {
+            echo "::error::Missing /crave-devspaces/PixelOS. Create/verify the PixelOS clone in Crave first."
+            exit 1
+          }
+          test -d /crave-devspaces/PixelOS/.repo || {
+            echo "::error::The PixelOS clone has no .repo directory."
+            exit 1
+          }
+          test -f /crave-devspaces/PixelOS/build/envsetup.sh || {
+            echo "::error::build/envsetup.sh is missing from the PixelOS clone."
+            exit 1
+          }
+          echo "PixelOS clone checks passed."
 
-      - name: Run PixelOS 17 flame build
+      - name: Queue sync and build through Crave
         env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
           CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
         run: |
-          set -e
+          set -euo pipefail
+          test -n "$CRAVE_USERNAME" || { echo "::error::CRAVE_USERNAME secret is missing"; exit 1; }
+          test -n "$CRAVE_TOKEN" || { echo "::error::CRAVE_TOKEN secret is missing"; exit 1; }
           cd /crave-devspaces/PixelOS
 
-          crave $CRAVE_FLAGS run --projectID 82 --no-patch -- "
-            set -e
+          # Manifest contents are inserted as base64 to avoid YAML/shell quote issues.
+          cat > /tmp/pixelos-flame-build.sh <<'REMOTE_SCRIPT'
+          set -euo pipefail
 
-            echo '========================================'
-            echo ' PixelOS 17 / Redmi 14C 5G / flame'
-            echo '========================================'
+          echo "========================================"
+          echo " PixelOS 17 / Redmi 14C 5G / flame"
+          echo "========================================"
 
-            echo '1. Creating local manifest...'
-            mkdir -p .repo/local_manifests
-            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=' | base64 -d > .repo/local_manifests/flame.xml
+          echo "1. Writing local manifest..."
+          mkdir -p .repo/local_manifests
+          printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=' | base64 -d > .repo/local_manifests/flame.xml
 
-            echo '2. Validating manifest...'
-            test -s .repo/local_manifests/flame.xml
-            python3 -c 'import xml.etree.ElementTree as ET; ET.parse(\".repo/local_manifests/flame.xml\"); print(\"Manifest XML: OK\")'
+          echo "2. Validating manifest XML..."
+          test -s .repo/local_manifests/flame.xml
+          python3 -c 'import xml.etree.ElementTree as ET; ET.parse(".repo/local_manifests/flame.xml"); print("Manifest XML: OK")'
 
-            echo '3. Checking manifest repositories...'
-            grep -q 'flame4blame/android_device_xiaomi_flame' .repo/local_manifests/flame.xml
-            grep -q 'flame4blame/android_device_xiaomi_flame-kernel' .repo/local_manifests/flame.xml
-            grep -q 'flame4blame/proprietary_vendor_xiaomi_flame' .repo/local_manifests/flame.xml
-            echo 'Manifest repository checks: OK'
+          echo "3. Checking expected repositories in manifest..."
+          grep -q 'flame4blame/android_device_xiaomi_flame' .repo/local_manifests/flame.xml
+          grep -q 'flame4blame/android_device_xiaomi_flame-kernel' .repo/local_manifests/flame.xml
+          grep -q 'flame4blame/proprietary_vendor_xiaomi_flame' .repo/local_manifests/flame.xml
 
-            echo '4. Syncing device sources...'
-            if [ -x /usr/bin/resync ]; then
-              /usr/bin/resync
-            else
-              /opt/crave/resync.sh
-            fi
+          echo "4. Syncing sources through Crave..."
+          if [ -x /usr/bin/resync ]; then
+            /usr/bin/resync
+          elif [ -x /opt/crave/resync.sh ]; then
+            /opt/crave/resync.sh
+          else
+            echo "ERROR: Crave resync helper not found."
+            exit 1
+          fi
 
-            echo '5. Checking required source directories...'
-            test -d device/xiaomi/flame
-            test -d device/xiaomi/flame-kernel
-            test -d vendor/xiaomi/flame
-            echo 'Device/kernel/vendor sources: OK'
+          echo "5. Checking device sources..."
+          test -d device/xiaomi/flame
+          test -d device/xiaomi/flame-kernel
+          test -d vendor/xiaomi/flame
 
-            echo '6. Loading Android build environment...'
-            source build/envsetup.sh
+          echo "6. Loading build environment..."
+          source build/envsetup.sh
 
-            echo '7. Checking PixelOS target...'
-            lunch custom_flame-cp2a-userdebug
+          echo "7. Checking target custom_flame-cp2a-userdebug..."
+          lunch custom_flame-cp2a-userdebug
 
-            echo 'PixelOS target: OK'
-            echo '8. Starting compilation...'
-            m pixelos
+          echo "8. Compiling PixelOS..."
+          m pixelos
 
-            echo '========================================'
-            echo ' PixelOS compilation command completed'
-            echo '========================================'
-          "
+          echo "Build command finished."
+          REMOTE_SCRIPT
+
+          # Substitute only the manifest payload, then encode the whole script.
+          sed -i 's|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=|' /tmp/pixelos-flame-build.sh
+          SCRIPT_B64="$(base64 -w0 /tmp/pixelos-flame-build.sh)"
+
+          if [ -n "$CRAVE_FLAGS" ]; then
+            crave $CRAVE_FLAGS run --projectID 82 --no-patch -- "echo $SCRIPT_B64 | base64 -d | bash"
+          else
+            crave run --projectID 82 --no-patch -- "echo $SCRIPT_B64 | base64 -d | bash"
+          fi
 
       - name: Verify ROM output
         if: success()
         run: |
-          set -e
+          set -euo pipefail
           cd /crave-devspaces/PixelOS
-          echo "Build completed. Searching for ROM..."
           test -d out/target/product/flame
-          find out/target/product/flame -maxdepth 1 -type f \( -name 'PixelOS_*.zip' -o -name '*.zip' \) -print
+          find out/target/product/flame -maxdepth 1 -type f -name '*.zip' -print
+          echo "If no ZIP was listed, inspect the Crave build log."
 
-      - name: Show Crave error log
+      - name: Show available build logs on failure
         if: failure()
         run: |
-          cd /crave-devspaces/PixelOS
-          echo "===== Crave error.log ====="
+          cd /crave-devspaces/PixelOS 2>/dev/null || exit 0
+          echo "===== out/error.log ====="
           if [ -f out/error.log ]; then
-            cat out/error.log
+            tail -n 250 out/error.log
           else
-            echo "out/error.log not found"
+            echo "out/error.log not found."
           fi
+          echo "===== recent build output files ====="
+          find out -maxdepth 3 -type f \( -name 'build.log' -o -name 'error.log' -o -name '*.log' \) -print 2>/dev/null | head -50 || true
 
       - name: Stop Crave jobs on cancellation
         if: cancelled()
         run: |
-          cd /crave-devspaces/PixelOS
           crave stop --all || true
