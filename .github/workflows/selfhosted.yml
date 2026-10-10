@@ -90,7 +90,7 @@ jobs:
 
             echo '2. Validating manifest...'
             test -s .repo/local_manifests/flame.xml
-            python3 -c 'import xml.etree.ElementTree as ET; ET.parse(".repo/local_manifests/flame.xml"); print("Manifest XML: OK")'
+            python3 -c 'import xml.etree.ElementTree as ET; ET.parse(\".repo/local_manifests/flame.xml\"); print(\"Manifest XML: OK\")'
 
             echo '3. Checking manifest repositories...'
             grep -q 'flame4blame/android_device_xiaomi_flame' .repo/local_manifests/flame.xml
