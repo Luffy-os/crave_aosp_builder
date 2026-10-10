@@ -1,18 +1,21 @@
-name: PixelOS 17 - flame (Crave)
+name: PixelOS 17 - Redmi 14C 5G (flame)
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   start-runner:
-    name: Start Crave self-hosted runner
+    name: Start existing Crave runner
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: Checkout workflow repository
         uses: actions/checkout@v4
 
-      - name: Install helper packages
+      - name: Install dependencies
         run: |
           set -e
           sudo apt-get update
@@ -24,9 +27,8 @@ jobs:
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$CRAVE_USERNAME" || { echo "::error::CRAVE_USERNAME secret is missing"; exit 1; }
-          test -n "$CRAVE_TOKEN" || { echo "::error::CRAVE_TOKEN secret is missing"; exit 1; }
-
+          test -n "$CRAVE_USERNAME" || { echo "::error::Missing CRAVE_USERNAME secret"; exit 1; }
+          test -n "$CRAVE_TOKEN" || { echo "::error::Missing CRAVE_TOKEN secret"; exit 1; }
           curl -fsSL https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
           test -f ./crave
           test -f ./crave.conf.sample
@@ -37,51 +39,29 @@ jobs:
           chmod 600 ./crave.conf
           crave version
 
-      - name: Find and start configured runner inside Crave
+      - name: Start GitHub runner in Crave devspace
         env:
           CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
         run: |
           set -euo pipefail
-
-          # Keep the remote script base64-encoded so nested shell quotes cannot
-          # corrupt it while passing through `crave devspace --`.
-          cat > /tmp/start-crave-runner.sh <<'REMOTE_SCRIPT'
+          cat > /tmp/start-runner.sh <<'REMOTE_SCRIPT'
           set -euo pipefail
-          echo "Searching Crave devspaces for actions-runner/run.sh..."
-          RUN_SH="$(find /crave-devspaces -type f -path '*/actions-runner/run.sh' -print -quit 2>/dev/null || true)"
-          if [ -z "$RUN_SH" ]; then
-            echo "ERROR: No actions-runner/run.sh found under /crave-devspaces."
-            echo "The GitHub Actions runner must already be installed and configured in Crave."
+          test -f actions-runner/run.sh || {
+            echo "ERROR: actions-runner/run.sh not found in the Crave devspace."
+            echo "Install and configure the GitHub self-hosted runner there first."
             exit 1
-          fi
-
-          RUNNER_DIR="$(dirname "$RUN_SH")"
-          RUNNER_HOME="$(dirname "$RUNNER_DIR")"
-          cd "$RUNNER_HOME"
-          echo "Runner directory: $RUNNER_DIR"
-          if [ ! -f "$RUNNER_DIR/.runner" ] && [ ! -f "$RUNNER_DIR/.credentials" ]; then
-            echo "ERROR: Runner files exist, but this runner does not appear configured."
-            echo "Configure this runner for your GitHub repository once before running this workflow."
-            exit 1
-          fi
-
+          }
           if tmux has-session -t ghactions 2>/dev/null; then
-            echo "Existing ghactions tmux session found; leaving it running."
+            echo "Existing ghactions tmux session is running."
           else
-            tmux new-session -d -s ghactions "cd '$RUNNER_HOME' && ./actions-runner/run.sh"
+            tmux new-session -d -s ghactions "cd actions-runner && ./run.sh"
+            echo "Started GitHub runner in tmux."
           fi
-
-          sleep 5
-          if tmux has-session -t ghactions 2>/dev/null; then
-            echo "Runner tmux session is alive."
-            tmux capture-pane -pt ghactions -S -30 || true
-          else
-            echo "ERROR: Runner tmux session exited."
-            exit 1
-          fi
+          sleep 3
+          tmux has-session -t ghactions
+          tmux capture-pane -pt ghactions -S -25 || true
           REMOTE_SCRIPT
-
-          SCRIPT_B64="$(base64 -w0 /tmp/start-crave-runner.sh)"
+          SCRIPT_B64="$(base64 -w0 /tmp/start-runner.sh)"
           if [ -n "$CRAVE_FLAGS" ]; then
             crave $CRAVE_FLAGS devspace -- "echo $SCRIPT_B64 | base64 -d | bash"
           else
@@ -89,68 +69,48 @@ jobs:
           fi
 
   build:
-    name: Build PixelOS 17 for flame
+    name: Sync and build PixelOS 17 for flame
     needs: start-runner
     runs-on: self-hosted
     timeout-minutes: 1440
     concurrency:
       group: pixelos17-flame
       cancel-in-progress: false
-
     steps:
       - name: Checkout workflow repository
         uses: actions/checkout@v4
 
-      - name: Check PixelOS Crave clone
+      - name: Verify Crave workspace and CLI
         run: |
           set -euo pipefail
-          test -d /crave-devspaces/PixelOS || {
-            echo "::error::Missing /crave-devspaces/PixelOS. Create/verify the PixelOS clone in Crave first."
-            exit 1
-          }
-          test -d /crave-devspaces/PixelOS/.repo || {
-            echo "::error::The PixelOS clone has no .repo directory."
-            exit 1
-          }
-          test -f /crave-devspaces/PixelOS/build/envsetup.sh || {
-            echo "::error::build/envsetup.sh is missing from the PixelOS clone."
-            exit 1
-          }
-          echo "PixelOS clone checks passed."
+          command -v crave
+          test -d /crave-devspaces/PixelOS
+          test -d /crave-devspaces/PixelOS/.repo
+          test -f /crave-devspaces/PixelOS/build/envsetup.sh
+          echo "Crave CLI and PixelOS clone found."
 
-      - name: Queue sync and build through Crave
+      - name: Queue source sync and compilation
         env:
-          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
           CRAVE_FLAGS: ${{ secrets.CRAVE_FLAGS }}
         run: |
           set -euo pipefail
-          test -n "$CRAVE_USERNAME" || { echo "::error::CRAVE_USERNAME secret is missing"; exit 1; }
-          test -n "$CRAVE_TOKEN" || { echo "::error::CRAVE_TOKEN secret is missing"; exit 1; }
           cd /crave-devspaces/PixelOS
-
-          # Manifest contents are inserted as base64 to avoid YAML/shell quote issues.
           cat > /tmp/pixelos-flame-build.sh <<'REMOTE_SCRIPT'
           set -euo pipefail
-
           echo "========================================"
           echo " PixelOS 17 / Redmi 14C 5G / flame"
           echo "========================================"
-
-          echo "1. Writing local manifest..."
+          echo "1. Creating local manifest..."
           mkdir -p .repo/local_manifests
-          printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=' | base64 -d > .repo/local_manifests/flame.xml
-
-          echo "2. Validating manifest XML..."
+          printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogIDxyZW1vdGUgbmFtZT0iZ2l0aHViIiBmZXRjaD0iaHR0cHM6Ly9naXRodWIuY29tLyIgLz4KICA8cHJvamVjdCBwYXRoPSJkZXZpY2UveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUiIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiIHJlbW90ZT0iZ2l0aHViIiAvPgogIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUta2VybmVsIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KICA8cHJvamVjdCBwYXRoPSJ2ZW5kb3IveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KPC9tYW5pZmVzdD4K' | base64 -d > .repo/local_manifests/flame.xml
+          echo "2. Validating manifest..."
           test -s .repo/local_manifests/flame.xml
           python3 -c 'import xml.etree.ElementTree as ET; ET.parse(".repo/local_manifests/flame.xml"); print("Manifest XML: OK")'
-
-          echo "3. Checking expected repositories in manifest..."
+          echo "3. Checking repository entries..."
           grep -q 'flame4blame/android_device_xiaomi_flame' .repo/local_manifests/flame.xml
           grep -q 'flame4blame/android_device_xiaomi_flame-kernel' .repo/local_manifests/flame.xml
           grep -q 'flame4blame/proprietary_vendor_xiaomi_flame' .repo/local_manifests/flame.xml
-
-          echo "4. Syncing sources through Crave..."
+          echo "4. Syncing through Crave..."
           if [ -x /usr/bin/resync ]; then
             /usr/bin/resync
           elif [ -x /opt/crave/resync.sh ]; then
@@ -159,55 +119,38 @@ jobs:
             echo "ERROR: Crave resync helper not found."
             exit 1
           fi
-
-          echo "5. Checking device sources..."
+          echo "5. Verifying device/kernel/vendor source folders..."
           test -d device/xiaomi/flame
           test -d device/xiaomi/flame-kernel
           test -d vendor/xiaomi/flame
-
           echo "6. Loading build environment..."
           source build/envsetup.sh
-
-          echo "7. Checking target custom_flame-cp2a-userdebug..."
+          echo "7. Checking PixelOS build target..."
           lunch custom_flame-cp2a-userdebug
-
           echo "8. Compiling PixelOS..."
           m pixelos
-
-          echo "Build command finished."
+          echo "PixelOS build command completed."
           REMOTE_SCRIPT
-
-          # Substitute only the manifest payload, then encode the whole script.
-          sed -i 's|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogICAgPHJlbW90ZSBuYW1lPSJnaXRodWIiIGZldGNoPSJodHRwczovL2dpdGh1Yi5jb20vIiAvPgogICAgPHByb2plY3QgcGF0aD0iZGV2aWNlL3hpYW9taS9mbGFtZSIKICAgICAgICAgICAgIG5hbWU9ImZsYW1lNGJsYW1lL2FuZHJvaWRfZGV2aWNlX3hpYW9taV9mbGFtZSIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIgogICAgICAgICAgICAgbmFtZT0iZmxhbWU0YmxhbWUvYW5kcm9pZF9kZXZpY2VfeGlhb21pX2ZsYW1lLWtlcm5lbCIKICAgICAgICAgICAgIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiCiAgICAgICAgICAgICByZW1vdGU9ImdpdGh1YiIgLz4KICAgIDxwcm9qZWN0IHBhdGg9InZlbmRvci94aWFvbWkvZmxhbWUiCiAgICAgICAgICAgICBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIgogICAgICAgICAgICAgcmV2aXNpb249ImxpbmVhZ2UtMjQuMCIKICAgICAgICAgICAgIHJlbW90ZT0iZ2l0aHViIiAvPgo8L21hbmlmZXN0Pgo=|' /tmp/pixelos-flame-build.sh
+          sed -i 's|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogIDxyZW1vdGUgbmFtZT0iZ2l0aHViIiBmZXRjaD0iaHR0cHM6Ly9naXRodWIuY29tLyIgLz4KICA8cHJvamVjdCBwYXRoPSJkZXZpY2UveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUiIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiIHJlbW90ZT0iZ2l0aHViIiAvPgogIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUta2VybmVsIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KICA8cHJvamVjdCBwYXRoPSJ2ZW5kb3IveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KPC9tYW5pZmVzdD4K|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPG1hbmlmZXN0PgogIDxyZW1vdGUgbmFtZT0iZ2l0aHViIiBmZXRjaD0iaHR0cHM6Ly9naXRodWIuY29tLyIgLz4KICA8cHJvamVjdCBwYXRoPSJkZXZpY2UveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUiIHJldmlzaW9uPSJsaW5lYWdlLTI0LjAiIHJlbW90ZT0iZ2l0aHViIiAvPgogIDxwcm9qZWN0IHBhdGg9ImRldmljZS94aWFvbWkvZmxhbWUta2VybmVsIiBuYW1lPSJmbGFtZTRibGFtZS9hbmRyb2lkX2RldmljZV94aWFvbWlfZmxhbWUta2VybmVsIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KICA8cHJvamVjdCBwYXRoPSJ2ZW5kb3IveGlhb21pL2ZsYW1lIiBuYW1lPSJmbGFtZTRibGFtZS9wcm9wcmlldGFyeV92ZW5kb3JfeGlhb21pX2ZsYW1lIiByZXZpc2lvbj0ibGluZWFnZS0yNC4wIiByZW1vdGU9ImdpdGh1YiIgLz4KPC9tYW5pZmVzdD4K|' /tmp/pixelos-flame-build.sh
           SCRIPT_B64="$(base64 -w0 /tmp/pixelos-flame-build.sh)"
-
+          echo "Submitting sync/build to Crave project ID 82..."
           if [ -n "$CRAVE_FLAGS" ]; then
             crave $CRAVE_FLAGS run --projectID 82 --no-patch -- "echo $SCRIPT_B64 | base64 -d | bash"
           else
             crave run --projectID 82 --no-patch -- "echo $SCRIPT_B64 | base64 -d | bash"
           fi
 
-      - name: Verify ROM output
-        if: success()
-        run: |
-          set -euo pipefail
-          cd /crave-devspaces/PixelOS
-          test -d out/target/product/flame
-          find out/target/product/flame -maxdepth 1 -type f -name '*.zip' -print
-          echo "If no ZIP was listed, inspect the Crave build log."
-
-      - name: Show available build logs on failure
+      - name: Show Crave error log if build failed
         if: failure()
         run: |
           cd /crave-devspaces/PixelOS 2>/dev/null || exit 0
-          echo "===== out/error.log ====="
+          echo "===== Pulling Crave error.log ====="
+          crave pull out/error.log || true
           if [ -f out/error.log ]; then
             tail -n 250 out/error.log
           else
-            echo "out/error.log not found."
+            echo "out/error.log is not available in this workspace."
           fi
-          echo "===== recent build output files ====="
-          find out -maxdepth 3 -type f \( -name 'build.log' -o -name 'error.log' -o -name '*.log' \) -print 2>/dev/null | head -50 || true
 
       - name: Stop Crave jobs on cancellation
         if: cancelled()
