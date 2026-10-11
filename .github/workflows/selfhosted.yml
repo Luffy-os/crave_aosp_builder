@@ -192,7 +192,10 @@ jobs:
         ;;
         esac
 
-        if [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "PixelOS 17" ]]; then
+          # Android 17's lunch command requires product-release-variant format.
+          LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-trunk_staging-${{ github.event.inputs.BUILD_TYPE }}"
+        elif [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
         elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
             LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
