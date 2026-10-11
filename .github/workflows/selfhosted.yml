@@ -438,17 +438,38 @@ jobs:
       # Download and configure 'crave'.
     - name: Configure the 'crave' environment
       run: |
+        set -euo pipefail
         echo "DCDEVSPACE status: ${DCDEVSPACE}"
-        mkdir -p $PROJECTFOLDER/.repo/manifests
-        if [[ $DCDEVSPACE == *1* ]]; then
-        echo 'No need to set up crave, we are already running in devspace!'
+        mkdir -p "$PROJECTFOLDER/.repo/manifests"
+        if [[ "$DCDEVSPACE" == *1* ]]; then
+          echo 'Already running inside a Crave devspace; skipping installation.'
         else
-          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-          mv ${PWD}/crave ${HOME}/bin/
-          sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
-          envsubst < ${PWD}/crave.conf.sample >> ${PWD}/crave.conf
-          rm -rf ${PWD}/crave.conf.sample       
-          cp crave.conf $PROJECTFOLDER 
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh -o /tmp/get_crave.sh
+          bash /tmp/get_crave.sh
+
+          # The installer may place the executable in the current directory.
+          if [[ -f "${PWD}/crave" ]]; then
+            install -m 755 "${PWD}/crave" "$HOME/bin/crave"
+          fi
+
+          # Fail clearly rather than trying to move into a non-directory.
+          if [[ ! -x "$HOME/bin/crave" ]]; then
+            echo "Crave executable was not found at $HOME/bin/crave after installation."
+            echo "Inspect the installer output and update this step to its actual install path."
+            exit 1
+          fi
+
+          sudo ln -sfn "$HOME/bin/crave" /usr/bin/crave
+
+          if [[ -f "${PWD}/crave.conf.sample" ]]; then
+            envsubst < "${PWD}/crave.conf.sample" > "$PROJECTFOLDER/crave.conf"
+          elif [[ -f "${PWD}/crave.conf" ]]; then
+            cp "${PWD}/crave.conf" "$PROJECTFOLDER/crave.conf"
+          else
+            echo "Neither crave.conf.sample nor crave.conf was found."
+            exit 1
+          fi
         fi
         if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
           cp configs/crave/crave.yaml.aosp $PROJECTFOLDER/.repo/manifests/crave.yaml
