@@ -88,7 +88,7 @@ jobs:
     - name: Configure the 'crave' environment
       run: |
         echo "DCDEVSPACE status: ${DCDEVSPACE}"
-        if [[ $DCDEVSPACE == *1* ]]; then
+        if [[ "${DCDEVSPACE:-}" == *1* ]]; then
         echo 'No need to set up crave, we are already running in devspace!'
         else
           mkdir ${HOME}/bin/
@@ -389,7 +389,7 @@ jobs:
     - name: Create Project Folders
       run: |
         echo "DCDEVSPACE status: ${DCDEVSPACE}"
-        if [[ $DCDEVSPACE != *1* ]]; then
+        if [[ "${DCDEVSPACE:-}" != *1* ]]; then
 
           #curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s -- 
 
@@ -405,14 +405,14 @@ jobs:
         else
           echo "We are already running in devspace... Skipping Symlinks"
         fi
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
+        if grep -q "$PROJECTFOLDER" <(crave clone list | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE:-}" == "1" ]]; then
+          crave clone destroy "$PROJECTFOLDER" || echo "Error removing $PROJECTFOLDER"
         else          
         echo "Skipping removal"
         fi
 
-        if [[ $DCDEVSPACE == *1* ]]; then
-          crave clone create --projectID $PROJECTID $PROJECTFOLDER || echo "Crave clone create failed!"
+        if [[ "${DCDEVSPACE:-}" == *1* ]]; then
+          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER" || echo "Crave clone create failed!"
         else
           mkdir -p $PROJECTFOLDER
         fi
@@ -438,28 +438,24 @@ jobs:
       # Download and configure 'crave'.
     - name: Configure the 'crave' environment
       run: |
-        set -euo pipefail
-        echo "DCDEVSPACE status: ${DCDEVSPACE}"
+        set -eo pipefail
+        echo "DCDEVSPACE status: ${DCDEVSPACE:-unset}"
         mkdir -p "$PROJECTFOLDER/.repo/manifests"
-        if [[ "$DCDEVSPACE" == *1* ]]; then
-          echo 'Already running inside a Crave devspace; skipping installation.'
+        if [[ "${DCDEVSPACE:-}" == *1* ]]; then
+          echo 'Already running inside a Crave devspace; skipping CLI installation.'
         else
           mkdir -p "$HOME/bin"
           curl -fsSL https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh -o /tmp/get_crave.sh
           bash /tmp/get_crave.sh
 
-          # The installer may place the executable in the current directory.
+          # Avoid mv failing when ~/bin/crave exists as a file rather than a directory.
           if [[ -f "${PWD}/crave" ]]; then
             install -m 755 "${PWD}/crave" "$HOME/bin/crave"
           fi
-
-          # Fail clearly rather than trying to move into a non-directory.
           if [[ ! -x "$HOME/bin/crave" ]]; then
-            echo "Crave executable was not found at $HOME/bin/crave after installation."
-            echo "Inspect the installer output and update this step to its actual install path."
+            echo "Crave executable not found at $HOME/bin/crave after installation."
             exit 1
           fi
-
           sudo ln -sfn "$HOME/bin/crave" /usr/bin/crave
 
           if [[ -f "${PWD}/crave.conf.sample" ]]; then
@@ -467,7 +463,7 @@ jobs:
           elif [[ -f "${PWD}/crave.conf" ]]; then
             cp "${PWD}/crave.conf" "$PROJECTFOLDER/crave.conf"
           else
-            echo "Neither crave.conf.sample nor crave.conf was found."
+            echo "Crave config template not found (crave.conf.sample or crave.conf)."
             exit 1
           fi
         fi
@@ -487,7 +483,7 @@ jobs:
     - name: Set the 'crave' project
       run: |
         cd $PROJECTFOLDER
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
+        if grep -q "$PROJECTFOLDER" <(crave clone list | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE:-}" == "1" ]]; then
           echo "Using Crave Clone... skipping"
         else
           echo "Running $REPO_INIT"
@@ -638,8 +634,8 @@ jobs:
     - name: Destroy Crave Clone
       if: ${{ always() }}
       run: |
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
+        if grep -q "$PROJECTFOLDER" <(crave clone list | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE:-}" == "1" ]]; then
+          crave clone destroy "$PROJECTFOLDER" || echo "Error removing $PROJECTFOLDER"
         else          
           echo "Skipping removal"
         fi
