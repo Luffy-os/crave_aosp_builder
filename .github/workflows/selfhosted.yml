@@ -536,6 +536,58 @@ jobs:
           /opt/crave/resync.sh
         fi && \
 
+        # Work around libjxl being exposed as a vendor variant when its
+        # dependencies do not provide vendor variants. Remove only an explicit
+        # vendor_available declaration from libjxl's own module block.
+        if [ -f external/libjxl/Android.bp ]; then
+          python3 - <<'PYFIX'
+from pathlib import Path
+p = Path("external/libjxl/Android.bp")
+s = p.read_text()
+start = s.find('cc_library {')
+if start < 0:
+    print("libjxl patch: cc_library block not found; leaving source unchanged")
+else:
+    depth = 0
+    end = None
+    in_string = False
+    escape = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end is None:
+        print("libjxl patch: unable to parse module block; leaving source unchanged")
+    else:
+        block = s[start:end]
+        import re
+        patched = re.sub(r'^\\s*vendor_available:\\s*true,?\\s*\\n', '', block, flags=re.M)
+        if patched != block:
+            p.write_text(s[:start] + patched + s[end:])
+            print("libjxl patch: removed explicit vendor_available from libjxl")
+        else:
+            print("libjxl patch: no explicit vendor_available found; source unchanged")
+PYFIX
+        else
+          echo "ERROR: external/libjxl/Android.bp not found after sync"
+          exit 1
+        fi && \\
+
         # Set up build environment
         export BUILD_USERNAME=${{ github.actor }} ; \
         export BUILD_HOSTNAME=crave ; \
