@@ -58,7 +58,7 @@ on:
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'm evolution'
+        default: 'm -j2 evolution'
       BUILD_TYPE:
         description: 'Type of build:'
         required: true
@@ -417,16 +417,14 @@ jobs:
         else
           echo "We are already running in devspace... Skipping Symlinks"
         fi
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
-        else          
-        echo "Skipping removal"
-        fi
-
-        if [[ $DCDEVSPACE == *1* ]]; then
-          crave clone create --projectID $PROJECTID $PROJECTFOLDER || echo "Crave clone create failed!"
+        if [[ "${DCDEVSPACE}" == *1* ]]; then
+          echo "Already running in a Crave Devspace; preserving current workspace."
+          mkdir -p "$PROJECTFOLDER"
+        elif crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fq "$PROJECTFOLDER"; then
+          echo "Existing Crave clone found at $PROJECTFOLDER; reusing it without destroying it."
         else
-          mkdir -p $PROJECTFOLDER
+          echo "No existing clone found; creating $PROJECTFOLDER"
+          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER"
         fi
         
       # Check-out in order to access the repository's files.
@@ -536,9 +534,10 @@ jobs:
         echo "Repository: ${{ github.repository }}"; \
         echo "Run ID: ${{ github.run_id }}"; \
 
-        # Build the ROM
+        # Build the ROM. Default BUILD_COMMAND uses -j2 to reduce peak RAM usage.
         $LUNCH && \
         make installclean && \
+        echo "Build command: ${{ github.event.inputs.BUILD_COMMAND }}" && \
         ${{ github.event.inputs.BUILD_COMMAND }}"
       timeout-minutes: 1440
 
