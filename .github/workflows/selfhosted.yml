@@ -526,6 +526,19 @@ jobs:
           /opt/crave/resync.sh
         fi && \
 
+        # Fix Evolution X cnb Settings compilation: ExpandIcon is incorrectly internal.
+        # Make only this top-level API public so Evolver can import it from another file.
+        echo "Checking for the ExpandIcon visibility issue..." && \
+        PATCH_FILE="$(grep -RIl --include='*.kt' 'internal fun ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 1)" && \
+        if [ -n "$PATCH_FILE" ]; then \
+          sed -i -E 's/^([[:space:]]*)internal[[:space:]]+fun[[:space:]]+ExpandIcon/\1fun ExpandIcon/' "$PATCH_FILE" && \
+          echo "Patched ExpandIcon visibility in $PATCH_FILE"; \
+        else \
+          echo "ERROR: Could not find declaration 'internal fun ExpandIcon' in expected Settings source paths."; \
+          grep -RIn --include='*.kt' 'ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 30 || true; \
+          exit 1; \
+        fi && \
+
         # Set up build environment
         export BUILD_USERNAME=${{ github.actor }} ; \
         export BUILD_HOSTNAME=crave ; \
