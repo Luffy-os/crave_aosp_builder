@@ -223,7 +223,7 @@ jobs:
             export local_manifest_url="${local_manifest_url%/}"  # remove trailing slash if it exists
             LOCAL_MANIFEST="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* || true && curl -o .repo/local_manifests/local_manifest.xml ${local_manifest_url}"
           else
-            export LOCAL_MANIFEST="git clone ${{ github.event.inputs.LOCAL_MANIFEST }} --depth 1 -b ${{github.event.inputs.LOCAL_MANIFEST_BRANCH}} .repo/local_manifests"
+            export LOCAL_MANIFEST="rm -rf .repo/local_manifests && git clone --depth 1 -b ${{github.event.inputs.LOCAL_MANIFEST_BRANCH}} ${{ github.event.inputs.LOCAL_MANIFEST }} .repo/local_manifests"
           fi
 
         echo "Building on ${{ github.event.inputs.BASE_PROJECT }} project"
@@ -484,12 +484,13 @@ jobs:
       # Initialize the previously choosen 'repo' project.
     - name: Set the 'crave' project
       run: |
-        cd $PROJECTFOLDER
-        if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
-          echo "Using Crave Clone... skipping"
+        cd "$PROJECTFOLDER"
+        if [[ -f .repo/manifest.xml ]]; then
+          echo "Repo manifest already exists; preserving the initialized workspace."
         else
-          echo "Running $REPO_INIT"
-          $REPO_INIT
+          echo "Repo manifest is missing; initializing selected ROM manifest."
+          echo "Running: $REPO_INIT"
+          eval "$REPO_INIT"
         fi
 
         if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]; then
@@ -508,11 +509,9 @@ jobs:
       run: |
         cd $PROJECTFOLDER
         
-        # Keep Crave's configured project mappings. Clearing .projects causes
-        # "Could not find matching projects" for manifests such as AxionOS.
+        # Preserve Crave project mappings for the selected project ID.
         if ! jq -e '.projects' ~/crave.conf >/dev/null 2>&1; then
           echo "ERROR: ~/crave.conf has no .projects configuration."
-          echo "Check the Crave configuration/template before building."
           exit 1
         fi
         if [ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]; then
