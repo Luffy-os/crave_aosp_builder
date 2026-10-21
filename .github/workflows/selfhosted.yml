@@ -486,7 +486,7 @@ jobs:
       run: |
         cd "$PROJECTFOLDER"
         if [[ -f .repo/manifest.xml ]]; then
-          echo "Repo manifest already exists; preserving the initialized workspace."
+          echo "Repo manifest already exists; preserving initialized workspace."
         else
           echo "Repo manifest is missing; initializing selected ROM manifest."
           echo "Running: $REPO_INIT"
@@ -509,7 +509,7 @@ jobs:
       run: |
         cd $PROJECTFOLDER
         
-        # Preserve Crave project mappings for the selected project ID.
+        # Preserve configured Crave project mappings.
         if ! jq -e '.projects' ~/crave.conf >/dev/null 2>&1; then
           echo "ERROR: ~/crave.conf has no .projects configuration."
           exit 1
