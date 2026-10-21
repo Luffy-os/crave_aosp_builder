@@ -29,6 +29,7 @@ on:
           - 'CipherOS 14'
           - 'PixelOS 15'
           - 'Evolution X 17'
+          - 'AxionOS 17'
           - 'LineageOS 18.1'
           - 'LineageOS 16.0'
           - 'CyanogenMOD 12.1'
@@ -181,6 +182,11 @@ jobs:
           export PROJECTID="82"
           export REPO_INIT="repo init -u https://github.com/Evolution-X/manifest -b cnb --git-lfs --depth=1"
         ;;
+        "AxionOS 17")
+          export PROJECTFOLDER="/crave-devspaces/AxionOS17"
+          export PROJECTID="82"
+          export REPO_INIT="repo init -u https://github.com/AxionAOSP/android.git -b lineage-24.0 --git-lfs --depth=1"
+        ;;
         "LineageOS 18.1")
           export PROJECTFOLDER="/crave-devspaces/Lineage18"
           export PROJECTID="85"
@@ -201,6 +207,9 @@ jobs:
         if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "Evolution X 17" ]]; then
           # Evolution X Android 17 (cnb) uses product-release-variant lunch targets.
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-cp2a-${{ github.event.inputs.BUILD_TYPE }}"
+        elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "AxionOS 17" ]]; then
+          # AxionOS uses its axion helper, not the generic breakfast/lunch flow.
+          LUNCH="axion ${{ github.event.inputs.DEVICE_NAME }} ${{ github.event.inputs.BUILD_TYPE }} gms"
         elif [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
         elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
@@ -526,18 +535,17 @@ jobs:
           /opt/crave/resync.sh
         fi && \
 
-        # Fix Evolution X cnb Settings compilation: ExpandIcon is incorrectly internal.
-        # Make only this top-level API public so Evolver can import it from another file.
-        echo "Checking for the ExpandIcon visibility issue..." && \
-        PATCH_FILE="$(grep -RIl --include='*.kt' 'internal fun ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 1)" && \
-        if [ -n "$PATCH_FILE" ]; then \
-          sed -i -E 's/^([[:space:]]*)internal[[:space:]]+fun[[:space:]]+ExpandIcon/\1fun ExpandIcon/' "$PATCH_FILE" && \
-          echo "Patched ExpandIcon visibility in $PATCH_FILE"; \
-        else \
-          echo "ERROR: Could not find declaration 'internal fun ExpandIcon' in expected Settings source paths."; \
-          grep -RIn --include='*.kt' 'ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 30 || true; \
-          exit 1; \
-        fi && \
+        # Evolution X-specific Settings workaround; skip this for AxionOS.
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "Evolution X 17" ]]; then \\
+          echo "Checking for the ExpandIcon visibility issue..." && \\
+          PATCH_FILE="$(grep -RIl --include='*.kt' 'internal fun ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 1)" && \\
+          if [ -n "$PATCH_FILE" ]; then \\
+            sed -i -E 's/^([[:space:]]*)internal[[:space:]]+fun[[:space:]]+ExpandIcon/\\1fun ExpandIcon/' "$PATCH_FILE" && \\
+            echo "Patched ExpandIcon visibility in $PATCH_FILE"; \\
+          else \\
+            echo "No ExpandIcon visibility patch needed/found; continuing."; \\
+          fi; \\
+        fi && \\
 
         # Set up build environment
         export BUILD_USERNAME=${{ github.actor }} ; \
@@ -547,7 +555,7 @@ jobs:
         echo "Repository: ${{ github.repository }}"; \
         echo "Run ID: ${{ github.run_id }}"; \
 
-        # Build the ROM. Default BUILD_COMMAND uses -j2 to reduce peak RAM usage.
+        # Build the ROM. For AxionOS set BUILD_COMMAND input to: ax -br -j2
         $LUNCH && \
         make installclean && \
         echo "Build command: ${{ github.event.inputs.BUILD_COMMAND }}" && \
