@@ -183,7 +183,7 @@ jobs:
           export REPO_INIT="repo init -u https://github.com/Evolution-X/manifest -b cnb --git-lfs --depth=1"
         ;;
         "AxionOS 17")
-          export PROJECTFOLDER="/crave-devspaces/AxionOS17"
+          export PROJECTFOLDER="/crave-devspaces/AxionOSTest"
           export PROJECTID="82"
           export REPO_INIT="repo init -u https://github.com/AxionAOSP/android.git -b lineage-24.0 --git-lfs --depth=1"
         ;;
@@ -509,7 +509,7 @@ jobs:
       run: |
         cd $PROJECTFOLDER
         
-        # Preserve configured Crave project mappings.
+        # Preserve Crave's registered project mappings.
         if ! jq -e '.projects' ~/crave.conf >/dev/null 2>&1; then
           echo "ERROR: ~/crave.conf has no .projects configuration."
           exit 1
