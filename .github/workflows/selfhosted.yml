@@ -541,7 +541,7 @@ jobs:
         fi && \
 
         # Evolution X-specific Settings workaround; skip this for AxionOS.
-        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "Evolution X 17" ]]; then \\
+        if [[ \"${{ github.event.inputs.BASE_PROJECT }}\" == \"Evolution X 17\" ]]; then \\
           echo "Checking for the ExpandIcon visibility issue..." && \\
           PATCH_FILE="$(grep -RIl --include='*.kt' 'internal fun ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 1)" && \\
           if [ -n "$PATCH_FILE" ]; then \\
