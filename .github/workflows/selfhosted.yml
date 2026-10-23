@@ -32,6 +32,10 @@ on:
           - 'LineageOS 18.1'
           - 'LineageOS 16.0'
           - 'CyanogenMOD 12.1'
+      CRAVE_PROJECT_ID:
+        description: 'Crave project ID registered for the selected manifest (verify in Crave)'
+        required: true
+        default: '82'
       BUILD_DIFFERENT_ROM:
         description: "Command to initialize a different 'repo' project:"
         required: false
@@ -58,7 +62,7 @@ on:
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'm -j2 bacon'
+        default: 'ax -b -j2 userdebug'
       BUILD_TYPE:
         description: 'Type of build:'
         required: true
@@ -88,7 +92,7 @@ jobs:
     - name: Set up environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y tmux
+        sudo apt-get install -y tmux ccache
 
       # Download and configure 'crave'.
     - name: Configure the 'crave' environment
@@ -178,7 +182,8 @@ jobs:
         ;;
         "AxionOS 17")
           export PROJECTFOLDER="/crave-devspaces/AxionOSTest"
-          export PROJECTID="82"
+          # Must be a Crave project ID registered for the Axion manifest; ID 82 may map to another ROM.
+          export PROJECTID="${{ github.event.inputs.CRAVE_PROJECT_ID }}"
           export REPO_INIT="repo init -u https://github.com/AxionAOSP/android.git -b lineage-24.0 --git-lfs --depth=1"
         ;;
         "LineageOS 18.1")
@@ -198,12 +203,14 @@ jobs:
         ;;
         esac
 
-        if [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "AxionOS 17" ]]; then
+          LUNCH="axion ${{ github.event.inputs.DEVICE_NAME }} ${{ github.event.inputs.BUILD_TYPE }} vanilla"
+        elif [[ "${{ github.event.inputs.PRODUCT_NAME }}" == *_* ]] && [[ "${{ github.event.inputs.PRODUCT_NAME }}" != gsi_* ]] && [[ "${{ github.event.inputs.PRODUCT_NAME }}" != sdk_* ]] && [[ "${{ github.event.inputs.PRODUCT_NAME }}" != *_sprout ]] && [[ "${{ github.event.inputs.PRODUCT_NAME }}" != Mi439_* ]] && [[ "${{ github.event.inputs.PRODUCT_NAME }}" != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
         elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
-            LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
+          LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
         else
-            LUNCH="breakfast ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
+          LUNCH="breakfast ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
         fi
 
           if [[ "${{ github.event.inputs.LOCAL_MANIFEST }}" =~ \.xml(/)?$ ]]; then
@@ -214,6 +221,10 @@ jobs:
             export LOCAL_MANIFEST="mkdir -p .repo && rm -rf .repo/local_manifests && git clone --depth 1 -b ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }} ${{ github.event.inputs.LOCAL_MANIFEST }} .repo/local_manifests"
           fi
 
+        if [[ -z "$PROJECTID" ]]; then
+          echo "ERROR: Crave project ID is empty."
+          exit 1
+        fi
         echo "Building on ${{ github.event.inputs.BASE_PROJECT }} project"
         echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_OUTPUT"
         echo "PROJECTID=$PROJECTID"  >> "$GITHUB_OUTPUT"
@@ -538,10 +549,16 @@ jobs:
         echo "Repository: ${{ github.repository }}"; \
         echo "Run ID: ${{ github.run_id }}"; \
 
-        # Build the ROM
-        $LUNCH && \
-        make installclean && \
-        ${{ github.event.inputs.BUILD_COMMAND }}"
+        # Build the ROM with the selected ROM's native build system.
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "AxionOS 17" ]]; then
+          echo "Using AxionOS build system for device: ${{ github.event.inputs.DEVICE_NAME }}"
+          axion "${{ github.event.inputs.DEVICE_NAME }}" "${{ github.event.inputs.BUILD_TYPE }}" vanilla && \
+          ${{ github.event.inputs.BUILD_COMMAND }}
+        else
+          $LUNCH && \
+          make installclean && \
+          ${{ github.event.inputs.BUILD_COMMAND }}
+        fi"
       timeout-minutes: 1440
 
 
