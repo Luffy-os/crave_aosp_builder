@@ -415,16 +415,14 @@ jobs:
         else
           echo "We are already running in devspace... Skipping Symlinks"
         fi
-        # Preserve existing Crave clones and their files between workflow runs.
-        # Never destroy a clone here; create it only when needed.
-        if [[ "${DCDEVSPACE:-0}" == *1* ]]; then
-          echo "Already running inside Crave Devspace; preserving dedicated workspace."
-          mkdir -p "$PROJECTFOLDER"
-        elif crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fq "$PROJECTFOLDER"; then
-          echo "Existing Crave clone found for $PROJECTFOLDER; preserving it."
+        # Always work through a registered Crave clone. Never run repo sync/build
+        # directly in the parent Devspace, and never destroy existing clones.
+        if crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fqx "$PROJECTFOLDER"; then
+          echo "Existing registered Crave clone found at $PROJECTFOLDER; preserving it."
         else
-          crave clone create --projectID "$PROJECTID" "$(basename "$PROJECTFOLDER")" || {
-            echo "ERROR: Crave clone creation failed."
+          echo "Creating registered Crave clone for $PROJECTFOLDER."
+          crave clone create --projectID "$PROJECTID" -b lineage-24.0 "$(basename "$PROJECTFOLDER")" || {
+            echo "ERROR: Crave clone creation failed; refusing to sync/build in the parent Devspace."
             exit 1
           }
         fi
@@ -542,17 +540,14 @@ jobs:
         REMOTE_SCRIPT_EOF
         )
 
-        # When this workflow runner is already inside a Crave Devspace, do not
-        # invoke a nested `crave run`: that can fail with "Could not get project
-        # root/url" because this path is not a separately registered clone.
-        # Run the build script directly in the dedicated workspace instead.
-        if [[ "${DCDEVSPACE:-0}" == *1* ]]; then
-          echo "Already inside Crave Devspace; executing build directly in $PROJECTFOLDER"
-          bash -lc "cd '$PROJECTFOLDER' && $REMOTE_SCRIPT"
-        else
-          echo "Running build through Crave clone $PROJECTFOLDER"
-          crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
+        # IMPORTANT: always delegate source initialization, repo sync and compilation
+        # to Crave's registered clone. Never run repo sync/build directly in Devspace.
+        if ! crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fqx "$PROJECTFOLDER"; then
+          echo "ERROR: $PROJECTFOLDER is not a registered Crave clone. Refusing to sync/build in Devspace."
+          exit 1
         fi
+        echo "Delegating all source sync and build operations to registered Crave clone: $PROJECTFOLDER"
+        crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
       timeout-minutes: 1440
 
 
