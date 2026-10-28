@@ -547,7 +547,7 @@ jobs:
           exit 1
         fi
         echo "Delegating all source sync and build operations to registered Crave clone: $PROJECTFOLDER"
-        crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
+        crave ${{ secrets.CRAVE_FLAGS }} run --projectID "$PROJECTID" --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
       timeout-minutes: 1440
 
 
