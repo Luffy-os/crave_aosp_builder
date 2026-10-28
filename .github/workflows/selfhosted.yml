@@ -19,7 +19,7 @@ on:
       BASE_PROJECT:
         description: 'Choose a base project:'
         required: true
-        default: 'Evolution X 17'
+        default: 'PenguinOS Android 17 (celerity)'
         type: choice
         options:
           - 'LineageOS 20.0'
@@ -28,8 +28,7 @@ on:
           - 'DerpFest 14.0'
           - 'CipherOS 14'
           - 'PixelOS 15'
-          - 'Evolution X 17'
-          - 'AxionOS 17'
+          - 'PenguinOS Android 17 (celerity)'
           - 'LineageOS 18.1'
           - 'LineageOS 16.0'
           - 'CyanogenMOD 12.1'
@@ -43,23 +42,23 @@ on:
       LOCAL_MANIFEST:
         description: "Personal local manifest [repository or raw]:"
         required: true
-        default: 'https://github.com/Luffy-os/local_manifests_flame'
+        default: 'https://github.com/dthakor1555-png/local_manifests_flame'
       LOCAL_MANIFEST_BRANCH:
         description: "Personal local manifest's branch:"
         required: false
-        default: 'main'
+        default: 'lineage-24.0'
       DEVICE_NAME:
         description: "Device's codename:"
         required: true
         default: "flame"
       PRODUCT_NAME:
-        description: "Product to build:"
+        description: "Android product target (Flame):"
         required: true
         default: "lineage_flame"
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'm -j2 evolution'
+        default: 'mka bacon'
       BUILD_TYPE:
         description: 'Type of build:'
         required: true
@@ -89,7 +88,7 @@ jobs:
     - name: Set up environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y tmux ccache
+        sudo apt-get install -y tmux
 
       # Download and configure 'crave'.
     - name: Configure the 'crave' environment
@@ -177,15 +176,11 @@ jobs:
           export PROJECTID="82"
           export REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs --depth=1"
         ;;
-        "Evolution X 17")
-          export PROJECTFOLDER="/crave-devspaces/EvolutionX17"
+        "PenguinOS Android 17 (celerity)")
+          # Use Crave project ID requested by the user (same ID as PixelOS 16).
+          export PROJECTFOLDER="/crave-devspaces/PenguinOS17"
           export PROJECTID="82"
-          export REPO_INIT="repo init -u https://github.com/Evolution-X/manifest -b cnb --git-lfs --depth=1"
-        ;;
-        "AxionOS 17")
-          export PROJECTFOLDER="/crave-devspaces/AxionOS17"
-          export PROJECTID="82"
-          export REPO_INIT="repo init -u https://github.com/AxionAOSP/android.git -b lineage-24.0 --git-lfs --depth=1"
+          export REPO_INIT="repo init -u https://github.com/Project-PenguinOS/manifest -b celerity --git-lfs --depth=1"
         ;;
         "LineageOS 18.1")
           export PROJECTFOLDER="/crave-devspaces/Lineage18"
@@ -204,14 +199,7 @@ jobs:
         ;;
         esac
 
-        BASE_PROJECT="${{ github.event.inputs.BASE_PROJECT }}"
-        if [[ "$BASE_PROJECT" == "Evolution X 17" ]]; then
-          # Evolution X Android 17 (cnb) uses product-release-variant lunch targets.
-          LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-cp2a-${{ github.event.inputs.BUILD_TYPE }}"
-        elif [[ "$BASE_PROJECT" == "AxionOS 17" ]]; then
-          # AxionOS uses its axion helper, not the generic breakfast/lunch flow.
-          LUNCH="axion ${{ github.event.inputs.DEVICE_NAME }} ${{ github.event.inputs.BUILD_TYPE }} gms"
-        elif [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
+        if [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
         elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
             LUNCH="riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}"
@@ -427,14 +415,17 @@ jobs:
         else
           echo "We are already running in devspace... Skipping Symlinks"
         fi
-        if [[ "${DCDEVSPACE}" == *1* ]]; then
-          echo "Already running in a Crave Devspace; preserving current workspace."
-          mkdir -p "$PROJECTFOLDER"
+        # Preserve existing Crave clones and their files between workflow runs.
+        # Never destroy a clone here; create it only when needed.
+        if [[ "$DCDEVSPACE" == *1* ]]; then
+          echo "Already running inside Crave Devspace; preserving workspace."
         elif crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fq "$PROJECTFOLDER"; then
-          echo "Existing Crave clone found at $PROJECTFOLDER; reusing it without destroying it."
+          echo "Existing Crave clone found for $PROJECTFOLDER; preserving it."
         else
-          echo "No existing clone found; creating $PROJECTFOLDER"
-          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER"
+          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER" || {
+            echo "ERROR: Crave clone creation failed."
+            exit 1
+          }
         fi
         
       # Check-out in order to access the repository's files.
@@ -536,18 +527,6 @@ jobs:
           /opt/crave/resync.sh
         fi && \
 
-        # Evolution X-specific Settings workaround; skip this for AxionOS.
-        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "Evolution X 17" ]]; then \\
-          echo "Checking for the ExpandIcon visibility issue..." && \\
-          PATCH_FILE="$(grep -RIl --include='*.kt' 'internal fun ExpandIcon' packages/apps/Settings frameworks/base/packages/SettingsLib 2>/dev/null | head -n 1)" && \\
-          if [ -n "$PATCH_FILE" ]; then \\
-            sed -i -E 's/^([[:space:]]*)internal[[:space:]]+fun[[:space:]]+ExpandIcon/\\1fun ExpandIcon/' "$PATCH_FILE" && \\
-            echo "Patched ExpandIcon visibility in $PATCH_FILE"; \\
-          else \\
-            echo "No ExpandIcon visibility patch needed/found; continuing."; \\
-          fi; \\
-        fi && \\
-
         # Set up build environment
         export BUILD_USERNAME=${{ github.actor }} ; \
         export BUILD_HOSTNAME=crave ; \
@@ -556,11 +535,13 @@ jobs:
         echo "Repository: ${{ github.repository }}"; \
         echo "Run ID: ${{ github.run_id }}"; \
 
-        # Build the ROM. For AxionOS set BUILD_COMMAND input to: ax -br -j2
-        $LUNCH && \
-        make installclean && \
-        echo "Build command: ${{ github.event.inputs.BUILD_COMMAND }}" && \
-        ${{ github.event.inputs.BUILD_COMMAND }}"
+        # Build the ROM. PenguinOS supplies its own target/build script.
+        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "PenguinOS Android 17 (celerity)" ]]; then
+          test -x ./rom-build.sh || { echo "ERROR: PenguinOS rom-build.sh is missing or not executable"; exit 1; }
+          ./rom-build.sh "${{ github.event.inputs.DEVICE_NAME }}"
+        else
+          $LUNCH && make installclean && ${{ github.event.inputs.BUILD_COMMAND }}
+        fi"
       timeout-minutes: 1440
 
 
@@ -609,84 +590,6 @@ jobs:
         crave ssh -- 'export GH_UPLOAD_LIMIT="${{ secrets.GH_UPLOAD_LIMIT }}"; bash /opt/crave/github-actions/upload.sh "${{ github.run_id }}" "${{ github.event.inputs.DEVICE_NAME }}" "${{ github.repository }}" "${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}" "${{ secrets.EXTRA_FILES }}"'
 
       # Send Build 'status' notification (Success)
-    - name: Ensure ROM ZIP is uploaded to GitHub Release
-      if: ${{ success() }}
-      run: |
-        cd "$PROJECTFOLDER"
-        cat > upload-rom-to-release.sh <<'REMOTE_SCRIPT'
-        #!/usr/bin/env bash
-        set -euo pipefail
-
-        RUN_ID="$1"
-        DEVICE="$2"
-        REPOSITORY="$3"
-        PRODUCT="$4"
-
-        if [[ ! -f token.txt ]]; then
-          echo "ERROR: token.txt is missing in the Crave workspace."
-          exit 1
-        fi
-        export GH_TOKEN
-        GH_TOKEN="$(cat token.txt)"
-        export GH_TOKEN
-
-        PRODUCT_DIR="out/target/product/${DEVICE}"
-        if [[ ! -d "$PRODUCT_DIR" ]]; then
-          echo "ERROR: Product output directory not found: $PRODUCT_DIR"
-          echo "Current directory: $(pwd)"
-          exit 1
-        fi
-
-        ROM_ZIP="$(find "$PRODUCT_DIR" -maxdepth 1 -type f -iname "*${DEVICE}*.zip" -printf '%T@ %p\n' \
-          | sort -nr | head -n1 | cut -d' ' -f2-)"
-        if [[ -z "$ROM_ZIP" ]]; then
-          ROM_ZIP="$(find "$PRODUCT_DIR" -maxdepth 1 -type f -iname '*.zip' -printf '%T@ %p\n' \
-            | sort -nr | head -n1 | cut -d' ' -f2-)"
-        fi
-        if [[ -z "$ROM_ZIP" || ! -f "$ROM_ZIP" ]]; then
-          echo "ERROR: No flashable ROM ZIP found in $PRODUCT_DIR"
-          find "$PRODUCT_DIR" -maxdepth 1 -type f -printf '%f\n' | head -n 80
-          exit 1
-        fi
-
-        TAG="$RUN_ID"
-        echo "ROM ZIP: $ROM_ZIP"
-        echo "Size: $(stat -c '%s' "$ROM_ZIP") bytes"
-        gh release view "$TAG" --repo "$REPOSITORY" >/dev/null
-
-        SIZE="$(stat -c '%s' "$ROM_ZIP")"
-        if (( SIZE <= 1900000000 )); then
-          sha256sum "$ROM_ZIP" > "${ROM_ZIP}.sha256"
-          gh release upload "$TAG" "$ROM_ZIP" "${ROM_ZIP}.sha256" \
-            --repo "$REPOSITORY" --clobber
-        else
-          echo "ROM exceeds safe single-asset size; splitting into 1,900,000,000-byte parts."
-          PART_PREFIX="${ROM_ZIP}.part-"
-          rm -f "${PART_PREFIX}"*
-          split -b 1900000000 -d -a 3 "$ROM_ZIP" "$PART_PREFIX"
-          sha256sum "$ROM_ZIP" > "${ROM_ZIP}.sha256"
-          cat > "${ROM_ZIP}.JOIN.txt" <<JOIN_INSTRUCTIONS
-        This ROM ZIP was split because GitHub Release assets have a per-file size limit.
-        Download every ${ROM_ZIP##*/}.part-* file into the same folder.
-        Reassemble on Linux/macOS/Termux:
-          cat ${ROM_ZIP##*/}.part-* > ${ROM_ZIP##*/}
-        Then verify:
-          sha256sum -c ${ROM_ZIP##*/}.sha256
-        Do not flash the .part-* files individually.
-        JOIN_INSTRUCTIONS
-          gh release upload "$TAG" "${PART_PREFIX}"* "${ROM_ZIP}.sha256" "${ROM_ZIP}.JOIN.txt" \
-            --repo "$REPOSITORY" --clobber
-        fi
-        echo "ROM release upload completed: https://github.com/${REPOSITORY}/releases/tag/${TAG}"
-        REMOTE_SCRIPT
-        REMOTE_DIR="$(crave ssh -- pwd | grep -v Select | sed -s 's/\r//g' | tail -n1)"
-        if [[ -z "$REMOTE_DIR" ]]; then
-          echo "ERROR: Could not determine the Crave remote working directory."
-          exit 1
-        fi
-        crave push upload-rom-to-release.sh -d "${REMOTE_DIR%/}/"
-        crave ssh -- "bash upload-rom-to-release.sh '${{ github.run_id }}' '${{ github.event.inputs.DEVICE_NAME }}' '${{ github.repository }}' '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}'"
-
     - name: Telegram Notification
       if:  ${{ success() }}
       continue-on-error: true
@@ -725,3 +628,5 @@ jobs:
         cd $PROJECTFOLDER
         crave ssh -- "export TG_UPLOAD_LIMIT="${{ secrets.TG_UPLOAD_LIMIT }}"; bash /opt/crave/telegram/upload.sh '${{ github.event.inputs.DEVICE_NAME }}' '${{ secrets.EXTRA_FILES }}'"
       continue-on-error: true
+
+      # Crave clone cleanup intentionally removed: preserve Devspace files.
