@@ -410,7 +410,7 @@ jobs:
           echo "Symlinking devspace folder"
           mkdir -p devspace
           sudo mkdir -p /crave-devspaces
-          sudo ln -sf ${pwd}/devspace /crave-devspaces
+          sudo ln -sfn "${PWD}/devspace" /crave-devspaces
           sudo chmod 777 /crave-devspaces
         else
           echo "We are already running in devspace... Skipping Symlinks"
@@ -419,10 +419,11 @@ jobs:
         # Never destroy a clone here; create it only when needed.
         if [[ "$DCDEVSPACE" == *1* ]]; then
           echo "Already running inside Crave Devspace; preserving workspace."
+          mkdir -p "$PROJECTFOLDER"
         elif crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fq "$PROJECTFOLDER"; then
           echo "Existing Crave clone found for $PROJECTFOLDER; preserving it."
         else
-          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER" || {
+          crave clone create --projectID "$PROJECTID" "$(basename "$PROJECTFOLDER")" || {
             echo "ERROR: Crave clone creation failed."
             exit 1
           }
@@ -432,14 +433,6 @@ jobs:
     - name: Check-out to repository
       uses: actions/checkout@v4
 
-      # Set-up a spearate directory for the device.
-    - name: Set-up workspace environment
-      run: |
-        cd $PROJECTFOLDER
-        mkdir ${{ github.event.inputs.DEVICE_NAME }}
-        cd ${{ github.event.inputs.DEVICE_NAME }}
-      continue-on-error: true
-      
       # Generate 'git' credential in base of the workflow's author.
     - name: Set-up 'git' credential(s)
       run: |
@@ -515,33 +508,40 @@ jobs:
         echo "Running build's log will show up here!"
 
 
-        crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }} && \
-        # Clone local_manifests repository
-        $BUILD_DIFFERENT_ROM ; \
-        $LOCAL_MANIFEST && \
+        REMOTE_SCRIPT=$(cat <<'REMOTE_SCRIPT_EOF'
+        set -e
+        rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }}
+        # Initialize the selected source and install the local manifest.
+        $BUILD_DIFFERENT_ROM
+        $LOCAL_MANIFEST
 
-        # Sync the repositories
+        # Sync the repositories.
         if [ -f /usr/bin/resync ]; then
-          /usr/bin/resync # For compatibility with Omansh's Docker image 
+          /usr/bin/resync
         else
           /opt/crave/resync.sh
-        fi && \
+        fi
 
-        # Set up build environment
-        export BUILD_USERNAME=${{ github.actor }} ; \
-        export BUILD_HOSTNAME=crave ; \
-        source build/envsetup.sh && \
+        export BUILD_USERNAME="${{ github.actor }}"
+        export BUILD_HOSTNAME=crave
+        source build/envsetup.sh
 
-        echo "Repository: ${{ github.repository }}"; \
-        echo "Run ID: ${{ github.run_id }}"; \
+        echo "Repository: ${{ github.repository }}"
+        echo "Run ID: ${{ github.run_id }}"
 
-        # Build the ROM. PenguinOS supplies its own target/build script.
-        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "PenguinOS Android 17 (celerity)" ]]; then
+        # PenguinOS supplies its own target/build script.
+        if [ "${{ github.event.inputs.BASE_PROJECT }}" = "PenguinOS Android 17 (celerity)" ]; then
           test -x ./rom-build.sh || { echo "ERROR: PenguinOS rom-build.sh is missing or not executable"; exit 1; }
           ./rom-build.sh "${{ github.event.inputs.DEVICE_NAME }}"
         else
-          $LUNCH && make installclean && ${{ github.event.inputs.BUILD_COMMAND }}
-        fi"
+          $LUNCH
+          make installclean
+          ${{ github.event.inputs.BUILD_COMMAND }}
+        fi
+        REMOTE_SCRIPT_EOF
+        )
+
+        crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
       timeout-minutes: 1440
 
 
