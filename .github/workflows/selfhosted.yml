@@ -515,12 +515,13 @@ jobs:
         $BUILD_DIFFERENT_ROM
         $LOCAL_MANIFEST
 
-        # Sync the repositories.
-        if [ -f /usr/bin/resync ]; then
-          /usr/bin/resync
-        else
-          /opt/crave/resync.sh
+        # Sync the repositories without relying on Crave-specific helper scripts.
+        # Some Devspace images do not include /opt/crave/resync.sh.
+        if ! command -v repo >/dev/null 2>&1; then
+          echo "ERROR: repo launcher is not installed or not on PATH."
+          exit 1
         fi
+        repo sync -c --force-sync --no-clone-bundle --no-tags -j"$(nproc)"
 
         export BUILD_USERNAME="${{ github.actor }}"
         export BUILD_HOSTNAME=crave
