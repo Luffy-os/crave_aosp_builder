@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-name: PenguinOS Android 17 - Crave Builder (self-hosted)
+name: AxionOS 2.9 Android 16 - Crave Builder (self-hosted)
 
 # GITHUB_TOKEN needs write to create Releases + upload assets
 permissions:
@@ -32,9 +32,9 @@ on:
           - 'LineageOS 16.0'
           - 'CyanogenMOD 12.1'
       BUILD_DIFFERENT_ROM:
-        description: "Command to initialize a different 'repo' project:"
+        description: "Initialize the AxionOS 2.9 source manifest"
         required: false
-        default: "repo init -u https://github.com/Project-PenguinOS/manifest.git -b celerity --git-lfs"
+        default: "repo init -u https://github.com/AxionAOSP/android.git -b lineage-23.2 --git-lfs"
       REMOVALS:
         description: "Folders to be removed before syncing:"
         required: false
@@ -51,13 +51,13 @@ on:
         required: true
         default: "flame"
       PRODUCT_NAME:
-        description: "Device product label (informational for PenguinOS builder):"
+        description: "Device product label (used for artifact naming; Axion selects device via axion command):"
         required: true
         default: "lineage_flame"
       BUILD_COMMAND:
-        description: 'Command to be used for compiling:'
+        description: 'AxionOS build commands'
         required: true
-        default: "sed -i 's/aospa_/lineage_/g' rom-build.sh && ./rom-build.sh flame -t userdebug"
+        default: "gk -s && axion flame userdebug gms && ax -br -j$(nproc)"
       BUILD_TYPE:
         description: 'Type of build:'
         required: true
@@ -524,10 +524,8 @@ jobs:
         echo "Repository: ${{ github.repository }}"; \
         echo "Run ID: ${{ github.run_id }}"; \
 
-        # Build the ROM. This device tree uses lineage_flame, so adapt the
-        # PenguinOS helper's aospa_ product prefix before running it. The
-        # helper then lunches lineage_flame-userdebug and packages the OTA.
-        # Do not run the generic workflow lunch or installclean beforehand.
+        # AxionOS official build flow: generate keys, configure the device,
+        # then compile. Device selection is by codename, not PRODUCT_NAME.
         ${{ github.event.inputs.BUILD_COMMAND }}"
       timeout-minutes: 1440
 
