@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-name: Crave Builder(self-hosted)
+name: PenguinOS Android 17 - Crave Builder (self-hosted)
 
 # GITHUB_TOKEN needs write to create Releases + upload assets
 permissions:
@@ -19,7 +19,7 @@ on:
       BASE_PROJECT:
         description: 'Choose a base project:'
         required: true
-        default: 'PenguinOS Android 17 (celerity)'
+        default: 'LineageOS 23.2'
         type: choice
         options:
           - 'LineageOS 20.0'
@@ -28,21 +28,20 @@ on:
           - 'DerpFest 14.0'
           - 'CipherOS 14'
           - 'PixelOS 15'
-          - 'PenguinOS Android 17 (celerity)'
           - 'LineageOS 18.1'
           - 'LineageOS 16.0'
           - 'CyanogenMOD 12.1'
       BUILD_DIFFERENT_ROM:
         description: "Command to initialize a different 'repo' project:"
         required: false
-        default: "echo 'Build Starting!'"
+        default: "repo init -u https://github.com/Project-PenguinOS/manifest.git -b celerity --git-lfs"
       REMOVALS:
         description: "Folders to be removed before syncing:"
         required: false
       LOCAL_MANIFEST:
         description: "Personal local manifest [repository or raw]:"
         required: true
-        default: 'https://github.com/dthakor1555-png/local_manifests_flame'
+        default: ''
       LOCAL_MANIFEST_BRANCH:
         description: "Personal local manifest's branch:"
         required: false
@@ -52,13 +51,13 @@ on:
         required: true
         default: "flame"
       PRODUCT_NAME:
-        description: "Android product target (Flame):"
+        description: "Device product label (informational for PenguinOS builder):"
         required: true
         default: "lineage_flame"
       BUILD_COMMAND:
         description: 'Command to be used for compiling:'
         required: true
-        default: 'mka bacon'
+        default: "sed -i 's/aospa_/lineage_/g' rom-build.sh && ./rom-build.sh flame -t userdebug"
       BUILD_TYPE:
         description: 'Type of build:'
         required: true
@@ -175,12 +174,6 @@ jobs:
           export PROJECTFOLDER="/crave-devspaces/Pixel16"
           export PROJECTID="82"
           export REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs --depth=1"
-        ;;
-        "PenguinOS Android 17 (celerity)")
-          # Use Crave project ID requested by the user (same ID as PixelOS 16).
-          export PROJECTFOLDER="/crave-devspaces/PenguinOS17"
-          export PROJECTID="82"
-          export REPO_INIT="repo init -u https://github.com/Project-PenguinOS/manifest -b celerity --git-lfs --depth=1"
         ;;
         "LineageOS 18.1")
           export PROJECTFOLDER="/crave-devspaces/Lineage18"
@@ -410,27 +403,32 @@ jobs:
           echo "Symlinking devspace folder"
           mkdir -p devspace
           sudo mkdir -p /crave-devspaces
-          sudo ln -sfn "${PWD}/devspace" /crave-devspaces
+          sudo ln -sf ${pwd}/devspace /crave-devspaces
           sudo chmod 777 /crave-devspaces
         else
           echo "We are already running in devspace... Skipping Symlinks"
         fi
-        # Always work through a registered Crave clone. Never run repo sync/build
-        # directly in the parent Devspace, and never destroy existing clones.
-        if crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fqx "$PROJECTFOLDER"; then
-          echo "Existing registered Crave clone found at $PROJECTFOLDER; preserving it."
+        if [[ "${DCDEVSPACE}" == *1* ]]; then
+          echo "Already inside a Crave devspace; preserving its files."
+        elif grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"'); then
+          echo "Existing Crave clone found at $PROJECTFOLDER; reusing it without deletion."
         else
-          echo "Creating registered Crave clone for $PROJECTFOLDER."
-          crave clone create --projectID "$PROJECTID" -b lineage-24.0 "$(basename "$PROJECTFOLDER")" || {
-            echo "ERROR: Crave clone creation failed; refusing to sync/build in the parent Devspace."
-            exit 1
-          }
+          echo "No existing clone found. Creating $PROJECTFOLDER."
+          crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER"
         fi
         
       # Check-out in order to access the repository's files.
     - name: Check-out to repository
       uses: actions/checkout@v4
 
+      # Set-up a spearate directory for the device.
+    - name: Set-up workspace environment
+      run: |
+        cd $PROJECTFOLDER
+        mkdir ${{ github.event.inputs.DEVICE_NAME }}
+        cd ${{ github.event.inputs.DEVICE_NAME }}
+      continue-on-error: true
+      
       # Generate 'git' credential in base of the workflow's author.
     - name: Set-up 'git' credential(s)
       run: |
@@ -506,48 +504,31 @@ jobs:
         echo "Running build's log will show up here!"
 
 
-        REMOTE_SCRIPT=$(cat <<'REMOTE_SCRIPT_EOF'
-        set -e
-        rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }}
-        # Initialize the selected source and install the local manifest.
-        $BUILD_DIFFERENT_ROM
-        $LOCAL_MANIFEST
+        crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID} ${CLEAN} -- "rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }} && \
+        # Clone local_manifests repository
+        $BUILD_DIFFERENT_ROM ; \
+        $LOCAL_MANIFEST && \
 
-        # Sync the repositories without relying on Crave-specific helper scripts.
-        # Some Devspace images do not include /opt/crave/resync.sh.
-        if ! command -v repo >/dev/null 2>&1; then
-          echo "ERROR: repo launcher is not installed or not on PATH."
-          exit 1
-        fi
-        repo sync -c --force-sync --no-clone-bundle --no-tags -j"$(nproc)"
-
-        export BUILD_USERNAME="${{ github.actor }}"
-        export BUILD_HOSTNAME=crave
-        source build/envsetup.sh
-
-        echo "Repository: ${{ github.repository }}"
-        echo "Run ID: ${{ github.run_id }}"
-
-        # PenguinOS supplies its own target/build script.
-        if [ "${{ github.event.inputs.BASE_PROJECT }}" = "PenguinOS Android 17 (celerity)" ]; then
-          test -x ./rom-build.sh || { echo "ERROR: PenguinOS rom-build.sh is missing or not executable"; exit 1; }
-          ./rom-build.sh "${{ github.event.inputs.DEVICE_NAME }}"
+        # Sync the repositories
+        if [ -f /usr/bin/resync ]; then
+          /usr/bin/resync # For compatibility with Omansh's Docker image 
         else
-          $LUNCH
-          make installclean
-          ${{ github.event.inputs.BUILD_COMMAND }}
-        fi
-        REMOTE_SCRIPT_EOF
-        )
+          /opt/crave/resync.sh
+        fi && \
 
-        # IMPORTANT: always delegate source initialization, repo sync and compilation
-        # to Crave's registered clone. Never run repo sync/build directly in Devspace.
-        if ! crave clone list --json | jq -r '.clones[]."Cloned At"' | grep -Fqx "$PROJECTFOLDER"; then
-          echo "ERROR: $PROJECTFOLDER is not a registered Crave clone. Refusing to sync/build in Devspace."
-          exit 1
-        fi
-        echo "Delegating all source sync and build operations to registered Crave clone: $PROJECTFOLDER"
-        crave ${{ secrets.CRAVE_FLAGS }} run --projectID "$PROJECTID" --no-patch ${PAID} ${CLEAN} -- "$REMOTE_SCRIPT"
+        # Set up build environment
+        export BUILD_USERNAME=${{ github.actor }} ; \
+        export BUILD_HOSTNAME=crave ; \
+        source build/envsetup.sh && \
+
+        echo "Repository: ${{ github.repository }}"; \
+        echo "Run ID: ${{ github.run_id }}"; \
+
+        # Build the ROM. This device tree uses lineage_flame, so adapt the
+        # PenguinOS helper's aospa_ product prefix before running it. The
+        # helper then lunches lineage_flame-userdebug and packages the OTA.
+        # Do not run the generic workflow lunch or installclean beforehand.
+        ${{ github.event.inputs.BUILD_COMMAND }}"
       timeout-minutes: 1440
 
 
@@ -635,4 +616,3 @@ jobs:
         crave ssh -- "export TG_UPLOAD_LIMIT="${{ secrets.TG_UPLOAD_LIMIT }}"; bash /opt/crave/telegram/upload.sh '${{ github.event.inputs.DEVICE_NAME }}' '${{ secrets.EXTRA_FILES }}'"
       continue-on-error: true
 
-      # Crave clone cleanup intentionally removed: preserve Devspace files.
